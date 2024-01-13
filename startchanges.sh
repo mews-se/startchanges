@@ -29,20 +29,23 @@ log() {
 
 log "Script execution started."
 
-# Function to run a complete apt upgrade before starting
+# Function to run apt update and full-upgrade
 run_apt_update_upgrade() {
     log "Running apt update and full-upgrade."
 
     # Update package lists
-    sudo -E apt-get update
-
-    # Perform a full upgrade only if updates are available
-    if sudo -E apt-get dist-upgrade -s | grep -q '^[[:digit:]]\+ upgraded'; then
-        sudo -E apt-get full-upgrade -y
-        log "Apt update and full-upgrade completed successfully."
-    else
-        log "No packages to upgrade. Skipping full-upgrade."
+    if ! sudo apt-get update; then
+        log "Error: Failed to update package lists."
+        exit 1
     fi
+
+    # Perform a full upgrade
+    if ! sudo apt-get full-upgrade -y; then
+        log "Error: Failed to perform full upgrade."
+        exit 1
+    fi
+
+    log "Apt update and full-upgrade completed successfully."
 }
 
 # Function to check and install required packages
@@ -324,10 +327,8 @@ EOL
     log "Ownership of $SNMPD_CONF_FILE set to root:root."
 }
 
-
 # Call the functions
 run_apt_update_upgrade
-check_install_dependencies
 update_sudoers
 configure_ssh
 generate_ssh_key
