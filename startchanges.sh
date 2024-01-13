@@ -309,6 +309,14 @@ EOL
     # Ensure proper ownership of snmpd.conf file
     sudo chown root:root "$SNMPD_CONF_FILE"
     log "Ownership of $SNMPD_CONF_FILE set to root:root."
+
+    # Reload SNMPD service
+    if sudo systemctl is-active --quiet snmpd && sudo systemctl reload snmpd; then
+        log "SNMPD service reloaded successfully."
+    else
+        log "Failed to reload SNMPD service. Check the service manually."
+        return 1
+    fi
 }
 
 # Call the functions
