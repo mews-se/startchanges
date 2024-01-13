@@ -1,26 +1,9 @@
 #!/bin/bash
 
 # Author: mews_se
-# Description: This script automates the configuration of sudoers, SSH settings, and generates an SSH key pair without passphrase.
-# It also creates or updates .bashrc and .bash_aliases files with custom configurations and aliases.
+# Description: This script automates system configuration, handling sudoers, SSH settings, and SSH key generation.
+#              It also manages .bashrc and .bash_aliases files with custom configurations and aliases.
 # Interesting Fact: Ed25519 is an elliptic curve public-key signature algorithm named after the curve25519 elliptic curve.
-
-# -----------------------------------------------------------------------------
-# Script Purpose:
-# This script automates the configuration of system settings, SSH, and user environment.
-# It ensures secure configurations, updates sudoers, and customizes user profiles.
-# Additionally, it installs and configures SNMP service with specific settings.
-#
-# Usage:
-#   - Ensure you have the necessary privileges to execute the script (e.g., via sudo).
-#   - Execute the script in a terminal: ./script_name.sh
-#
-# Important Notes:
-#   - Review and customize the aliases in the create_bash_aliases function to fit your preferences.
-#   - Ensure proper testing in a controlled environment before deploying in production.
-#   - Consider potential security implications, especially when generating SSH keys without passphrases.
-#
-# -----------------------------------------------------------------------------
 
 log() {
     local message="$(date '+%Y-%m-%d %H:%M:%S') $1"
@@ -126,6 +109,7 @@ configure_ssh() {
         log "SSH configuration updated successfully."
     fi
 }
+
 
 # Function to generate a new Ed25519 SSH key pair without passphrase
 generate_ssh_key() {
