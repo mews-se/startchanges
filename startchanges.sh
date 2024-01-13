@@ -1,11 +1,17 @@
 #!/bin/bash
 
 # Author: mews_se
-# Description: This comprehensive Bash script automates several system configuration tasks, enhancing user experience and security. It covers the configuration of sudoers, SSH settings, and the generation of an SSH key pair without a passphrase. Additionally, the script creates or updates .bashrc and .bash_aliases files with customized configurations and aliases to streamline command-line interactions.
+# Description:
+#   This comprehensive Bash script automates several system configuration tasks,
+#   enhancing user experience and security. It covers the configuration of sudoers,
+#   SSH settings, and the generation of an SSH key pair without a passphrase.
+#   Additionally, the script creates or updates .bashrc and .bash_aliases files with
+#   customized configurations and aliases to streamline command-line interactions.
 
-# Interesting Fact: Ed25519 is an elliptic curve public-key signature algorithm named after the curve25519 elliptic curve.
-
-# Disclaimer: This script is customized for personal use by me. It is strongly recommended that users carefully review the code and understand its functionality before executing any commands. Use at your own risk.
+# Disclaimer:
+#   This script is customized for personal use by me. It is strongly recommended that
+#   users carefully review the code and understand its functionality before
+#   executing any commands. Use at your own risk.
 
 # Function log: Logs messages with timestamp
 log() {
