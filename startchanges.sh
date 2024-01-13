@@ -150,21 +150,13 @@ EOL
     } | sudo -u $SUDO_USER tee -a "$BASHRC_FILE" > /dev/null
 }
 
-## Function to create or update .bash_aliases file
+# Function to create or update .bash_aliases file
 create_bash_aliases() {
     log "Creating/updating .bash_aliases file."
     BASH_ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
 
-    # Check if .bash_aliases file already exists
-    if [ -f "$BASH_ALIASES_FILE" ]; then
-        # Clear existing content
-        sudo -u $SUDO_USER echo -n > "$BASH_ALIASES_FILE"
-        log ".bash_aliases file cleared for user: $SUDO_USER."
-    fi
-
-    {
-        # .bash_aliases content
-        cat <<'EOL'
+    # List of aliases to be added
+    aliases_to_add=$(cat <<'EOL'
 alias apta="sudo apt update && sudo apt full-upgrade && sudo apt autoremove -y && sudo apt clean"
 alias kodipi="ssh dietpi@10.0.0.7"
 alias sen="watch -n 1 sensors"
@@ -184,10 +176,28 @@ alias fanoff="sudo systemctl stop fancontrol.service"
 alias fanon="sudo systemctl start fancontrol.service"
 alias tb="ssh 10.0.0.97"
 EOL
-    } | sudo -u $SUDO_USER tee -a "$BASH_ALIASES_FILE" > /dev/null
-    log ".bash_aliases file created/updated successfully for user: $SUDO_USER."
-}
+)
 
+    # Check if .bash_aliases file already exists
+    if [ -f "$BASH_ALIASES_FILE" ]; then
+        # Read existing content
+        existing_content=$(sudo -u $SUDO_USER cat "$BASH_ALIASES_FILE")
+
+        # Add aliases only if not present
+        while read -r alias_line; do
+            if ! grep -q "$alias_line" <<< "$existing_content"; then
+                echo "$alias_line" | sudo -u $SUDO_USER tee -a "$BASH_ALIASES_FILE" > /dev/null
+            fi
+        done <<< "$aliases_to_add"
+
+        log ".bash_aliases file updated successfully for user: $SUDO_USER."
+    else
+        # If .bash_aliases file doesn't exist, create it with the provided content
+        echo "$aliases_to_add" | sudo -u $SUDO_USER tee "$BASH_ALIASES_FILE" > /dev/null
+
+        log ".bash_aliases file created successfully for user: $SUDO_USER."
+    fi
+}
 
 # Call the functions
 update_sudoers
