@@ -12,6 +12,18 @@ log() {
 
 log "Script execution started."
 
+run_apt_update_upgrade() {
+    log "Running apt update and full-upgrade."
+
+    # Update package lists
+    sudo apt-get update
+
+    # Perform a full upgrade
+    sudo apt-get full-upgrade -y
+
+    log "Apt update and full-upgrade completed successfully."
+}
+
 # Function to update sudoers
 update_sudoers() {
     log "Updating sudoers."
@@ -199,12 +211,63 @@ EOL
     fi
 }
 
+# Function to install snmpd package and create snmpd.conf file
+install_snmpd() {
+    log "Installing snmpd package."
+
+    # Install snmpd package
+    sudo apt-get install -y snmpd
+
+    log "Snmpd package installed successfully."
+
+    # Create snmpd.conf file with specified content
+    SNMPD_CONF_FILE="/etc/snmp/snmpd.conf"
+    SNMPD_CONF_CONTENT=$(cat <<'EOL'
+sysLocation    Sitting on the Dock of the Bay
+sysContact     Me <me@example.org>
+sysServices    72
+master  agentx
+agentaddress  udp:161
+view   systemonly  included   .1.3.6.1.2.1.1
+view   systemonly  included   .1.3.6.1.2.1.25.1
+rocommunity martin
+rouser authPrivUser authpriv -V systemonly
+includeAllDisks  10%
+extend uptime /bin/cat /proc/uptime
+extend .1.3.6.1.4.1.2021.7890.1 distro /usr/local/bin/distro
+#Regular Linux:
+extend .1.3.6.1.4.1.2021.7890.2 hardware /bin/cat /sys/devices/virtual/dmi/id/product_name
+extend .1.3.6.1.4.1.2021.7890.3 vendor   /bin/cat /sys/devices/virtual/dmi/id/sys_vendor
+extend .1.3.6.1.4.1.2021.7890.4 serial   /bin/cat /sys/devices/virtual/dmi/id/product_serial
+# Raspberry Pi:
+#extend .1.3.6.1.4.1.2021.7890.2 hardware /bin/cat /proc/device-tree/model
+#extend .1.3.6.1.4.1.2021.7890.4 serial   /bin/cat /proc/device-tree/serial-number
+EOL
+)
+
+    if [ -f "$SNMPD_CONF_FILE" ]; then
+        log "snmpd.conf file already exists. Overwriting with the new content."
+        echo "$SNMPD_CONF_CONTENT" | sudo tee "$SNMPD_CONF_FILE" > /dev/null
+    else
+        echo "$SNMPD_CONF_CONTENT" | sudo tee "$SNMPD_CONF_FILE" > /dev/null
+        log "snmpd.conf file created successfully at $SNMPD_CONF_FILE."
+    fi
+
+    # Ensure proper ownership of snmpd.conf file
+    sudo chown root:root "$SNMPD_CONF_FILE"
+    log "Ownership of $SNMPD_CONF_FILE set to root:root."
+}
+
+
 # Call the functions
+run_apt_update_upgrade
 update_sudoers
 configure_ssh
 generate_ssh_key
 create_bashrc
 create_bash_aliases
+install_snmpd
+
 
 # Source .bashrc and .bash_aliases to apply changes immediately
 source "/home/$SUDO_USER/.bashrc"
