@@ -64,21 +64,12 @@ configure_ssh() {
             return 1
         fi
 
-        # Add AllowUsers line if it doesn't exist
-        if sudo grep -q '^#AllowUsers' /etc/ssh/sshd_config; then
-            if sudo sed -i '/^#AllowUsers/s/^#//' /etc/ssh/sshd_config; then
-                log "AllowUsers line added."
-            else
-                log "Failed to uncomment AllowUsers line. Check the configuration manually."
-                return 1
-            fi
+        # Add AllowUsers line directly below PermitRootLogin if it doesn't exist
+        if sudo sed -E -i '/PermitRootLogin/a AllowUsers dietpi mews' /etc/ssh/sshd_config; then
+            log "AllowUsers line added directly below PermitRootLogin."
         else
-            if echo "AllowUsers dietpi mews" | sudo tee -a /etc/ssh/sshd_config > /dev/null; then
-                log "AllowUsers line added."
-            else
-                log "Failed to add AllowUsers line. Check the configuration manually."
-                return 1
-            fi
+            log "Failed to add AllowUsers line. Check the configuration manually."
+            return 1
         fi
 
         # Restart SSH service only if changes were made
@@ -92,6 +83,7 @@ configure_ssh() {
         log "SSH configuration updated successfully."
     fi
 }
+
 
 # Function to generate SSH key
 generate_ssh_key() {
