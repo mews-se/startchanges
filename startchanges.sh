@@ -2,7 +2,7 @@
 
 # Author: mews_se
 # Description: This script automates system configuration, handling sudoers, SSH settings, and SSH key generation.
-#              It also manages .bashrc and .bash_aliases files with custom configurations and aliases.
+# It also manages .bashrc and .bash_aliases files with custom configurations and aliases.
 # Interesting Fact: Ed25519 is an elliptic curve public-key signature algorithm named after the curve25519 elliptic curve.
 
 log() {
