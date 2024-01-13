@@ -15,9 +15,9 @@ log() {
 
 log "Script execution started."
 
-# Function run_apt_update_upgrade: Runs apt update and full-upgrade
-run_apt_update_upgrade() {
-    log "Running apt update and full-upgrade."
+# Function to perform system update and upgrade
+system_update_upgrade() {
+    log "Running system update and upgrade."
 
     # Update package lists
     if ! sudo apt-get update; then
@@ -34,50 +34,30 @@ run_apt_update_upgrade() {
     log "Apt update and full-upgrade completed successfully."
 }
 
-# Function to check and install required packages
-check_install_dependencies() {
-    log "Checking and installing required packages."
-
-    # List of required packages
-    required_packages=("openssh-server")
-
-    for package in "${required_packages[@]}"; do
-        if ! dpkg -l | grep -q "^ii.*${package}"; then
-            log "Installing $package..."
-            sudo -E apt-get install -y "$package"
-            log "$package installed successfully."
-        else
-            log "$package is already installed. No changes needed."
-        fi
-    done
-
-    log "Dependency check completed."
-}
-
 # Function to update sudoers
 update_sudoers() {
     log "Updating sudoers."
 
     # Check if the line already exists in sudoers
-    if sudo -E grep -q '^%sudo ALL=(ALL) NOPASSWD: ALL$' /etc/sudoers; then
+    if sudo grep -q '^%sudo ALL=(ALL) NOPASSWD: ALL$' /etc/sudoers; then
         log "sudoers entry already exists. No changes needed."
     else
         # Replace the existing line
-        sudo -E sed -E -i '/^%sudo/s/.*/%sudo ALL=(ALL) NOPASSWD: ALL/' /etc/sudoers
+        sudo sed -E -i '/^%sudo/s/.*/%sudo ALL=(ALL) NOPASSWD: ALL/' /etc/sudoers
         log "sudoers entry updated successfully."
     fi
 }
 
-# Function to configure SSH settings and restart SSH service
+# Function to configure SSH settings
 configure_ssh() {
     log "Configuring SSH."
 
     # Check if AllowUsers line already exists
-    if sudo -E grep -q '^AllowUsers dietpi mews$' /etc/ssh/sshd_config; then
+    if sudo grep -q '^AllowUsers dietpi mews$' /etc/ssh/sshd_config; then
         log "AllowUsers already configured. No changes needed."
     else
         # Ensure PermitRootLogin is set to no
-        if sudo -E sed -E -i '/PermitRootLogin/s/^#?(PermitRootLogin).*/\1 no/' /etc/ssh/sshd_config; then
+        if sudo sed -E -i '/PermitRootLogin/s/^#?(PermitRootLogin).*/\1 no/' /etc/ssh/sshd_config; then
             log "PermitRootLogin set to no."
         else
             log "Failed to set PermitRootLogin to no. Check the configuration manually."
@@ -85,8 +65,8 @@ configure_ssh() {
         fi
 
         # Add AllowUsers line if it doesn't exist
-        if sudo -E grep -q '^#AllowUsers' /etc/ssh/sshd_config; then
-            if sudo -E sed -i '/^#AllowUsers/s/^#//' /etc/ssh/sshd_config; then
+        if sudo grep -q '^#AllowUsers' /etc/ssh/sshd_config; then
+            if sudo sed -i '/^#AllowUsers/s/^#//' /etc/ssh/sshd_config; then
                 log "AllowUsers line added."
             else
                 log "Failed to uncomment AllowUsers line. Check the configuration manually."
@@ -102,7 +82,7 @@ configure_ssh() {
         fi
 
         # Restart SSH service only if changes were made
-        if sudo -E systemctl is-active --quiet sshd && sudo -E systemctl restart sshd; then
+        if sudo systemctl is-active --quiet sshd && sudo systemctl restart sshd; then
             log "SSH service restarted successfully."
         else
             log "Failed to restart SSH service. Check the service manually."
@@ -113,8 +93,7 @@ configure_ssh() {
     fi
 }
 
-
-# Function to generate a new Ed25519 SSH key pair without passphrase
+# Function to generate SSH key
 generate_ssh_key() {
     log "Generating SSH key."
 
@@ -127,7 +106,7 @@ generate_ssh_key() {
     else
         # Force create .ssh folder
         sudo -u $SUDO_USER mkdir -p "$SSH_DIR"
-        
+
         # Generate a new Ed25519 SSH key without passphrase
         sudo -u $SUDO_USER ssh-keygen -t ed25519 -f "$KEY_FILE" -N ""
         log "Ed25519 SSH key generated successfully."
@@ -243,7 +222,7 @@ alias tb="ssh 10.0.0.97"
 EOL
 )
 
-    # Check if .bash_aliases file already exists
+     # Check if .bash_aliases file already exists
     if [ -f "$BASH_ALIASES_FILE" ]; then
         # Read existing content
         existing_content=$(sudo -u $SUDO_USER cat "$BASH_ALIASES_FILE")
@@ -264,9 +243,9 @@ EOL
     fi
 }
 
-# Function to install snmpd package and create snmpd.conf file
-install_snmpd() {
-    log "Installing snmpd package."
+# Function to install and configure SNMPD
+install_configure_snmpd() {
+    log "Installing and configuring SNMPD."
 
     # Install snmpd package only if not already installed
     if ! dpkg -l | grep -q "^ii.*snmpd"; then
@@ -322,14 +301,19 @@ EOL
     fi
 }
 
-# Call the functions
-run_apt_update_upgrade
-update_sudoers
-configure_ssh
-generate_ssh_key
-create_bashrc
-create_bash_aliases
-install_snmpd
+# Main function to call other functions
+main() {
+    system_update_upgrade
+    update_sudoers
+    configure_ssh
+    generate_ssh_key
+    create_bashrc
+    create_bash_aliases
+    install_configure_snmpd
+}
+
+# Execute the main function
+main
 
 # Source .bashrc and .bash_aliases to apply changes immediately
 source "/home/$SUDO_USER/.bashrc"
