@@ -13,6 +13,17 @@
 #   users carefully review the code and understand its functionality before
 #   executing any commands. Use at your own risk.
 
+# List of required commands
+required_commands=("sudo" "apt-get" "sed" "ssh-keygen" "systemctl" "dpkg")
+
+# Check if all required commands are available
+for cmd in "${required_commands[@]}"; do
+    if ! command -v "$cmd" &>/dev/null; then
+        echo "Error: $cmd command not found. Please make sure it's installed and in your PATH." >&2
+        exit 1
+    fi
+done
+
 # Function log: Logs messages with timestamp
 log() {
     local message="$(date '+%Y-%m-%d %H:%M:%S') $1"
@@ -39,6 +50,9 @@ system_update_upgrade() {
 
     log "Apt update and full-upgrade completed successfully."
 }
+
+# Rest of the script...
+
 
 # Function to update sudoers
 update_sudoers() {
