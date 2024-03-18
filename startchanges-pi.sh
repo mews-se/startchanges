@@ -277,7 +277,7 @@ master  agentx
 agentaddress  udp:161
 view   systemonly  included   .1.3.6.1.2.1.1
 view   systemonly  included   .1.3.6.1.2.1.25.1
-rocommunity brk
+rocommunity martin
 rouser authPrivUser authpriv -V systemonly
 includeAllDisks  10%
 extend uptime /bin/cat /proc/uptime
