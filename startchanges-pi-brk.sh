@@ -277,18 +277,18 @@ master  agentx
 agentaddress  udp:161
 view   systemonly  included   .1.3.6.1.2.1.1
 view   systemonly  included   .1.3.6.1.2.1.25.1
-rocommunity martin
+rocommunity brk
 rouser authPrivUser authpriv -V systemonly
 includeAllDisks  10%
 extend uptime /bin/cat /proc/uptime
 extend .1.3.6.1.4.1.2021.7890.1 distro /usr/local/bin/distro
 #Regular Linux:
-extend .1.3.6.1.4.1.2021.7890.2 hardware /bin/cat /sys/devices/virtual/dmi/id/product_name
-extend .1.3.6.1.4.1.2021.7890.3 vendor   /bin/cat /sys/devices/virtual/dmi/id/sys_vendor
-extend .1.3.6.1.4.1.2021.7890.4 serial   /bin/cat /sys/devices/virtual/dmi/id/product_serial
+#extend .1.3.6.1.4.1.2021.7890.2 hardware /bin/cat /sys/devices/virtual/dmi/id/product_name
+#extend .1.3.6.1.4.1.2021.7890.3 vendor   /bin/cat /sys/devices/virtual/dmi/id/sys_vendor
+#extend .1.3.6.1.4.1.2021.7890.4 serial   /bin/cat /sys/devices/virtual/dmi/id/product_serial
 # Raspberry Pi:
-#extend .1.3.6.1.4.1.2021.7890.2 hardware /bin/cat /proc/device-tree/model
-#extend .1.3.6.1.4.1.2021.7890.4 serial   /bin/cat /proc/device-tree/serial-number
+extend .1.3.6.1.4.1.2021.7890.2 hardware /bin/cat /proc/device-tree/model
+extend .1.3.6.1.4.1.2021.7890.4 serial   /bin/cat /proc/device-tree/serial-number
 EOL
 )
 
