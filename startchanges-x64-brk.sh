@@ -51,9 +51,6 @@ system_update_upgrade() {
     log "Apt update and full-upgrade completed successfully."
 }
 
-# Rest of the script...
-
-
 # Function to update sudoers
 update_sudoers() {
     log "Updating sudoers."
@@ -103,7 +100,6 @@ configure_ssh() {
         log "SSH configuration updated successfully."
     fi
 }
-
 
 # Function to generate SSH key
 generate_ssh_key() {
@@ -274,8 +270,6 @@ install_configure_snmpd() {
     else
         log "Snmpd package is already installed. No changes needed."
     fi
-
-}
 
     # Create snmpd.conf file with specified content
     SNMPD_CONF_FILE="/etc/snmp/snmpd.conf"
