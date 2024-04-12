@@ -259,6 +259,14 @@ EOL
 install_configure_snmpd() {
     log "Installing and configuring SNMPD."
 
+    # Install lm-sensors package if not already installed
+    if ! dpkg -l | grep -q "^ii.*lm-sensors"; then
+        sudo apt-get install -y lm-sensors
+        log "lm-sensors package installed successfully."
+    else
+        log "lm-sensors package is already installed. No changes needed."
+    fi
+
     # Install snmpd package only if not already installed
     if ! dpkg -l | grep -q "^ii.*snmpd"; then
         sudo apt-get install -y snmpd
@@ -266,6 +274,8 @@ install_configure_snmpd() {
     else
         log "Snmpd package is already installed. No changes needed."
     fi
+
+}
 
     # Create snmpd.conf file with specified content
     SNMPD_CONF_FILE="/etc/snmp/snmpd.conf"
