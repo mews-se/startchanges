@@ -318,66 +318,46 @@ EOL
     fi
 }
 
-# Main menu function
-show_menu() {
-    echo "Please choose an option:"
-    echo "1) System update and upgrade"
-    echo "2) Update sudoers"
-    echo "3) Configure SSH settings"
-    echo "4) Generate SSH key"
-    echo "5) Create/update .bashrc file"
-    echo "6) Create/update .bash_aliases file"
-    echo "7) Install and configure SNMPD"
-    echo "8) Run all tasks"
-    echo "9) Exit"
+# Function to run all tasks
+run_all_tasks() {
+    system_update_upgrade
+    update_sudoers
+    configure_ssh
+    generate_ssh_key
+    create_bashrc
+    create_bash_aliases
+    install_configure_snmpd
 }
 
-# Main function to call other functions based on user input
-main() {
+# Main menu function
+main_menu() {
     while true; do
-        show_menu
-        read -rp "Enter your choice: " choice
+        echo "Select an option:"
+        echo "1. System Update and Upgrade"
+        echo "2. Update Sudoers"
+        echo "3. Configure SSH"
+        echo "4. Generate SSH Key"
+        echo "5. Create/Update .bashrc"
+        echo "6. Create/Update .bash_aliases"
+        echo "7. Install and Configure SNMPD"
+        echo "8. Run All"
+        echo "9. Exit"
+        read -rp "Enter your choice [1-9]: " choice
+
         case $choice in
-            1)
-                system_update_upgrade
-                ;;
-            2)
-                update_sudoers
-                ;;
-            3)
-                configure_ssh
-                ;;
-            4)
-                generate_ssh_key
-                ;;
-            5)
-                create_bashrc
-                ;;
-            6)
-                create_bash_aliases
-                ;;
-            7)
-                install_configure_snmpd
-                ;;
-            8)
-                system_update_upgrade
-                update_sudoers
-                configure_ssh
-                generate_ssh_key
-                create_bashrc
-                create_bash_aliases
-                install_configure_snmpd
-                ;;
-            9)
-                log "Script execution completed."
-                exit 0
-                ;;
-            *)
-                echo "Invalid choice. Please try again."
-                ;;
+            1) system_update_upgrade ;;
+            2) update_sudoers ;;
+            3) configure_ssh ;;
+            4) generate_ssh_key ;;
+            5) create_bashrc ;;
+            6) create_bash_aliases ;;
+            7) install_configure_snmpd ;;
+            8) run_all_tasks ;;
+            9) log "Script execution completed."; exit 0 ;;
+            *) echo "Invalid choice. Please select a valid option." ;;
         esac
     done
 }
 
-# Execute the main function
-main
+# Execute the main menu function
+main_menu
