@@ -190,14 +190,6 @@ fi
 if [ -f ~/.bash_aliases ]; then
     . ~/.bash_aliases
 fi
-
-if ! shopt -oq posix; then
-  if [ -f /usr/share/bash-completion/bash_completion ]; then
-    . /usr/share/bash-completion/bash_completion
-  elif [ -f /etc/bash_completion ]; then
-    . /etc/bash_completion
-  fi
-fi
 EOL
 
     log ".bashrc file created/updated successfully for user: $SUDO_USER."
@@ -230,7 +222,7 @@ alias tb="ssh 10.0.0.97"
 EOL
 )
 
-     # Check if .bash_aliases file already exists
+    # Check if .bash_aliases file already exists
     if [ -f "$BASH_ALIASES_FILE" ]; then
         # Read existing content
         existing_content=$(sudo -u $SUDO_USER cat "$BASH_ALIASES_FILE")
@@ -317,8 +309,8 @@ EOL
     fi
 }
 
-# Main function to call other functions
-main() {
+# Function to run all tasks
+run_all_tasks() {
     system_update_upgrade
     update_sudoers
     configure_ssh
@@ -328,11 +320,35 @@ main() {
     install_configure_snmpd
 }
 
-# Execute the main function
-main
+# Main menu function
+main_menu() {
+    while true; do
+        echo "Select an option:"
+        echo "1. System Update and Upgrade"
+        echo "2. Update Sudoers"
+        echo "3. Configure SSH"
+        echo "4. Generate SSH Key"
+        echo "5. Create/Update .bashrc"
+        echo "6. Create/Update .bash_aliases"
+        echo "7. Install and Configure SNMPD"
+        echo "8. Run All"
+        echo "9. Exit"
+        read -rp "Enter your choice [1-9]: " choice
 
-# Source .bashrc and .bash_aliases to apply changes immediately
-source "/home/$SUDO_USER/.bashrc"
-source "/home/$SUDO_USER/.bash_aliases"
+        case $choice in
+            1) system_update_upgrade ;;
+            2) update_sudoers ;;
+            3) configure_ssh ;;
+            4) generate_ssh_key ;;
+            5) create_bashrc ;;
+            6) create_bash_aliases ;;
+            7) install_configure_snmpd ;;
+            8) run_all_tasks ;;
+            9) log "Script execution completed."; exit 0 ;;
+            *) echo "Invalid choice. Please select a valid option." ;;
+        esac
+    done
+}
 
-log "Script execution completed."
+# Execute the main menu function
+main_menu
