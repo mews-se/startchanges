@@ -203,6 +203,7 @@ EOL
     log ".bashrc file created/updated successfully for user: $SUDO_USER."
 }
 
+# Function to create or update .bash_aliases file
 create_bash_aliases() {
     log "Creating/updating .bash_aliases file."
     BASH_ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
@@ -230,7 +231,7 @@ alias tb="ssh 10.0.0.97"
 EOL
 )
 
-     # Check if .bash_aliases file already exists
+    # Check if .bash_aliases file already exists
     if [ -f "$BASH_ALIASES_FILE" ]; then
         # Read existing content
         existing_content=$(sudo -u $SUDO_USER cat "$BASH_ALIASES_FILE")
@@ -317,22 +318,66 @@ EOL
     fi
 }
 
-# Main function to call other functions
+# Main menu function
+show_menu() {
+    echo "Please choose an option:"
+    echo "1) System update and upgrade"
+    echo "2) Update sudoers"
+    echo "3) Configure SSH settings"
+    echo "4) Generate SSH key"
+    echo "5) Create/update .bashrc file"
+    echo "6) Create/update .bash_aliases file"
+    echo "7) Install and configure SNMPD"
+    echo "8) Run all tasks"
+    echo "9) Exit"
+}
+
+# Main function to call other functions based on user input
 main() {
-    system_update_upgrade
-    update_sudoers
-    configure_ssh
-    generate_ssh_key
-    create_bashrc
-    create_bash_aliases
-    install_configure_snmpd
+    while true; do
+        show_menu
+        read -rp "Enter your choice: " choice
+        case $choice in
+            1)
+                system_update_upgrade
+                ;;
+            2)
+                update_sudoers
+                ;;
+            3)
+                configure_ssh
+                ;;
+            4)
+                generate_ssh_key
+                ;;
+            5)
+                create_bashrc
+                ;;
+            6)
+                create_bash_aliases
+                ;;
+            7)
+                install_configure_snmpd
+                ;;
+            8)
+                system_update_upgrade
+                update_sudoers
+                configure_ssh
+                generate_ssh_key
+                create_bashrc
+                create_bash_aliases
+                install_configure_snmpd
+                ;;
+            9)
+                log "Script execution completed."
+                exit 0
+                ;;
+            *)
+                echo "Invalid choice. Please try again."
+                ;;
+        esac
+    done
 }
 
 # Execute the main function
 main
-
-# Source .bashrc and .bash_aliases to apply changes immediately
-source "/home/$SUDO_USER/.bashrc"
-source "/home/$SUDO_USER/.bash_aliases"
-
-log "Script execution completed."
