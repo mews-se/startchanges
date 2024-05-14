@@ -317,6 +317,17 @@ EOL
     fi
 }
 
+# Function to run all tasks
+run_all_tasks() {
+    system_update_upgrade
+    update_sudoers
+    configure_ssh
+    generate_ssh_key
+    create_bashrc
+    create_bash_aliases
+    install_configure_snmpd
+}
+
 # Main menu function
 main_menu() {
     while true; do
@@ -328,8 +339,9 @@ main_menu() {
         echo "5. Create/Update .bashrc"
         echo "6. Create/Update .bash_aliases"
         echo "7. Install and Configure SNMPD"
-        echo "8. Exit"
-        read -rp "Enter your choice [1-8]: " choice
+        echo "8. Run All"
+        echo "9. Exit"
+        read -rp "Enter your choice [1-9]: " choice
 
         case $choice in
             1) system_update_upgrade ;;
@@ -339,7 +351,8 @@ main_menu() {
             5) create_bashrc ;;
             6) create_bash_aliases ;;
             7) install_configure_snmpd ;;
-            8) log "Script execution completed."; exit 0 ;;
+            8) run_all_tasks ;;
+            9) log "Script execution completed."; exit 0 ;;
             *) echo "Invalid choice. Please select a valid option." ;;
         esac
     done
