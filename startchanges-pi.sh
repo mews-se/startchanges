@@ -2,16 +2,42 @@
 
 # Author: mews_se
 # Description:
-#   This comprehensive Bash script automates several system configuration tasks,
-#   enhancing user experience and security. It covers the configuration of sudoers,
-#   SSH settings, and the generation of an SSH key pair without a passphrase.
-#   Additionally, the script creates or updates .bashrc and .bash_aliases files with
-#   customized configurations and aliases to streamline command-line interactions.
-
+#   This Bash script automates several system configuration tasks
+#   to enhance user experience and bolster security. It begins by updating
+#   system packages to ensure the latest security patches and software
+#   enhancements are applied. The script then proceeds to configure sudo
+#   permissions, optimizing user management and system administration.
+#   
+#   SSH settings are adjusted to restrict root login and define
+#   specific users allowed SSH access, improving overall system security.
+#   Additionally, the script generates an SSH key pair without a passphrase,
+#   facilitating secure authentication between systems.
+#   
+#   To streamline command-line interactions, the script customizes the .bashrc
+#   and .bash_aliases files. These configurations include personalized prompts,
+#   command history settings, and useful aliases for frequently used commands.
+#   
+#   Beyond basic system setup, the script extends its functionality to include
+#   the installation and configuration of SNMPD (Simple Network Management
+#   Protocol Daemon) and Docker. SNMPD facilitates network monitoring by
+#   providing access to system metrics, while Docker simplifies application
+#   deployment through containerization technology.
+# 
 # Disclaimer:
-#   This script is customized for personal use by me. It is strongly recommended that
-#   users carefully review the code and understand its functionality before
-#   executing any commands. Use at your own risk.
+#   This script is authored and maintained for personal use by the author. Users
+#   are encouraged to carefully review the code and comprehend its operations
+#   before executing any commands. It is advisable to test the script in a
+#   controlled, non-production environment to evaluate its impact and
+#   functionality specific to your system configuration.
+#   
+#   The author assumes no responsibility for any unintended consequences,
+#   including but not limited to data loss, system downtime, or security
+#   breaches, resulting from the use of this script. By executing the script,
+#   users acknowledge and accept these risks.
+#   
+#   For critical systems or environments with unique configurations, consider
+#   adapting the script to suit specific requirements and conducting thorough
+#   testing prior to deployment.
 
 # List of required commands
 required_commands=("sudo" "apt" "sed" "ssh-keygen" "systemctl" "dpkg" "curl")
@@ -130,8 +156,14 @@ create_bashrc() {
     log "Creating/updating .bashrc file."
     BASHRC_FILE="/home/$SUDO_USER/.bashrc"
 
+    # Remove .bashrc if it exists
+    if [ -f "$BASHRC_FILE" ]; then
+        sudo -u $SUDO_USER rm "$BASHRC_FILE"
+        log "Removed existing .bashrc file."
+    fi
+
     # Ensure home directory exists
-    sudo -u $SUDO_USER mkdir -p $(dirname "$BASHRC_FILE")
+    sudo -u $SUDO_USER mkdir -p "$(dirname "$BASHRC_FILE")"
 
     # .bashrc content
     cat <<'EOL' | sudo -u $SUDO_USER tee -a "$BASHRC_FILE" > /dev/null
@@ -146,17 +178,17 @@ HISTSIZE=1000
 HISTFILESIZE=2000
 shopt -s checkwinsize
 
-if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
-    debian_chroot=$(cat /etc/debian_chroot)
+if [ -z "\${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
+    debian_chroot=\$(cat /etc/debian_chroot)
 fi
 
-case "$TERM" in
+case "\$TERM" in
     xterm-color|*-256color) color_prompt=yes;;
 esac
 
 force_color_prompt=yes
 
-if [ -n "$force_color_prompt" ]; then
+if [ -n "\$force_color_prompt" ]; then
     if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
         color_prompt=yes
     else
@@ -164,23 +196,23 @@ if [ -n "$force_color_prompt" ]; then
     fi
 fi
 
-if [ "$color_prompt" = yes ]; then
-    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w \$\[\033[00m\] '
+if [ "\$color_prompt" = yes ]; then
+    PS1='\${debian_chroot:+(\$debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w \$\[\033[00m\] '
 else
-    PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+    PS1='\${debian_chroot:+(\$debian_chroot)}\u@\h:\w\$ '
 fi
 unset color_prompt force_color_prompt
 
-case "$TERM" in
+case "\$TERM" in
 xterm*|rxvt*)
-    PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]$PS1"
+    PS1="\[\e]0;\${debian_chroot:+(\$debian_chroot)}\u@\h: \w\a\]\$PS1"
     ;;
 *)
     ;;
 esac
 
 if [ -x /usr/bin/dircolors ]; then
-    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    test -r ~/.dircolors && eval "\$(dircolors -b ~/.dircolors)" || eval "\$(dircolors -b)"
     alias ls='ls --color=auto'
     alias grep='grep --color=auto'
     alias fgrep='fgrep --color=auto'
@@ -195,9 +227,16 @@ EOL
     log ".bashrc file created/updated successfully for user: $SUDO_USER."
 }
 
+# Function to create or update .bash_aliases file
 create_bash_aliases() {
     log "Creating/updating .bash_aliases file."
     BASH_ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
+
+    # Remove .bash_aliases if it exists
+    if [ -f "$BASH_ALIASES_FILE" ]; then
+        sudo -u $SUDO_USER rm "$BASH_ALIASES_FILE"
+        log "Removed existing .bash_aliases file."
+    fi
 
     # List of aliases to be added
     aliases_to_add=$(cat <<'EOL'
@@ -233,25 +272,10 @@ alias ff="fastfetch -c all.jsonc"
 EOL
 )
 
-    # Check if .bash_aliases file already exists
-    if [ -f "$BASH_ALIASES_FILE" ]; then
-        # Read existing content
-        existing_content=$(sudo -u $SUDO_USER cat "$BASH_ALIASES_FILE")
+    # If .bash_aliases file doesn't exist, create it with the provided content
+    echo "$aliases_to_add" | sudo -u $SUDO_USER tee "$BASH_ALIASES_FILE" > /dev/null
 
-        # Add aliases only if not present
-        while read -r alias_line; do
-            if ! grep -q "$alias_line" <<< "$existing_content"; then
-                echo "$alias_line" | sudo -u $SUDO_USER tee -a "$BASH_ALIASES_FILE" > /dev/null
-            fi
-        done <<< "$aliases_to_add"
-
-        log ".bash_aliases file updated successfully for user: $SUDO_USER."
-    else
-        # If .bash_aliases file doesn't exist, create it with the provided content
-        echo "$aliases_to_add" | sudo -u $SUDO_USER tee "$BASH_ALIASES_FILE" > /dev/null
-
-        log ".bash_aliases file created successfully for user: $SUDO_USER."
-    fi
+    log ".bash_aliases file created/updated successfully for user: $SUDO_USER."
 }
 
 # Function to install and configure SNMPD
@@ -349,7 +373,7 @@ install_docker_ce() {
     sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras -y
     sudo usermod -aG docker $SUDO_USER
 
-    log "Docker CE and tools installed successfully."
+    log "Docker CE and tools installed successfully. User added to the group docker"
 }
 
 # Function to run all tasks
