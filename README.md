@@ -37,4 +37,4 @@ Contributions are welcome! If you find a bug or have an enhancement in mind, ple
 
 ## License
 
-This script is licensed under the [MIT License](link-to-license).
+This script is licensed under the [The Unlicense](https://github.com/mews-se/startup-script/blob/test/LICENSE).
