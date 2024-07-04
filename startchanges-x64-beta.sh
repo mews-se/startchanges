@@ -336,7 +336,8 @@ install_docker_ce() {
 
     # Install Docker CE and tools
     sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose -y
-
+    sudo usermod -aG $SUDO_USER docker
+    
     log "Docker CE and tools installed successfully."
 }
 
