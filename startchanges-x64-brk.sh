@@ -14,7 +14,7 @@
 #   executing any commands. Use at your own risk.
 
 # List of required commands
-required_commands=("sudo" "apt-get" "sed" "ssh-keygen" "systemctl" "dpkg")
+required_commands=("sudo" "apt" "sed" "ssh-keygen" "systemctl" "dpkg" "curl")
 
 # Check if all required commands are available
 for cmd in "${required_commands[@]}"; do
@@ -37,13 +37,13 @@ system_update_upgrade() {
     log "Running system update and upgrade."
 
     # Update package lists
-    if ! sudo apt-get update; then
+    if ! sudo apt update; then
         log "Error: Failed to update package lists."
         exit 1
     fi
 
     # Perform a full upgrade
-    if ! sudo apt-get full-upgrade -y; then
+    if ! sudo apt full-upgrade -y; then
         log "Error: Failed to perform full upgrade."
         exit 1
     fi
@@ -309,6 +309,38 @@ EOL
     fi
 }
 
+# Function to install Docker repository
+install_docker_repository() {
+    log "Installing Docker repository."
+
+    # Add Docker's official GPG key:
+    sudo apt update
+    sudo apt install ca-certificates curl
+    sudo install -m 0755 -d /etc/apt/keyrings
+    sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+    # Add the repository to Apt sources:
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
+      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    sudo apt update
+
+    log "Docker repository installed successfully."
+}
+
+# Function to install Docker CE and related tools
+install_docker_ce() {
+    log "Installing Docker CE and related tools."
+
+    # Install Docker CE and tools
+    sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose -y
+    sudo usermod -aG docker $SUDO_USER
+
+    log "Docker CE and tools installed successfully."
+}
+
 # Function to run all tasks
 run_all_tasks() {
     system_update_upgrade
@@ -318,6 +350,8 @@ run_all_tasks() {
     create_bashrc
     create_bash_aliases
     install_configure_snmpd
+    install_docker_repository
+    install_docker_ce
 }
 
 # Main menu function
@@ -331,9 +365,11 @@ main_menu() {
         echo "5. Create/Update .bashrc"
         echo "6. Create/Update .bash_aliases"
         echo "7. Install and Configure SNMPD"
-        echo "8. Run All"
-        echo "9. Exit"
-        read -rp "Enter your choice [1-9]: " choice
+        echo "8. Install Docker Repository"
+        echo "9. Install Docker CE and Tools"
+        echo "10. Run All"
+        echo "11. Exit"
+        read -rp "Enter your choice [1-11]: " choice
 
         case $choice in
             1) system_update_upgrade ;;
@@ -343,8 +379,10 @@ main_menu() {
             5) create_bashrc ;;
             6) create_bash_aliases ;;
             7) install_configure_snmpd ;;
-            8) run_all_tasks ;;
-            9) log "Script execution completed."; exit 0 ;;
+            8) install_docker_repository ;;
+            9) install_docker_ce ;;
+            10) run_all_tasks ;;
+            11) log "Script execution completed."; exit 0 ;;
             *) echo "Invalid choice. Please select a valid option." ;;
         esac
     done
