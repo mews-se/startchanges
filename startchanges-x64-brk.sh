@@ -225,6 +225,11 @@ fi
 EOL
 
     log ".bashrc file created/updated successfully for user: $SUDO_USER."
+
+    # Source .bashrc
+    if [ -f "$BASHRC_FILE" ]; then
+        . "$BASHRC_FILE"
+    fi
 }
 
 # Function to create or update .bash_aliases file
@@ -276,6 +281,11 @@ EOL
     echo "$aliases_to_add" | sudo -u $SUDO_USER tee "$BASH_ALIASES_FILE" > /dev/null
 
     log ".bash_aliases file created/updated successfully for user: $SUDO_USER."
+
+    # Source .bash_aliases
+    if [ -f "$BASH_ALIASES_FILE" ]; then
+        . "$BASH_ALIASES_FILE"
+    fi
 }
 
 # Function to install and configure SNMPD
