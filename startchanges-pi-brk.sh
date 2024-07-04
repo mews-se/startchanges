@@ -202,10 +202,7 @@ create_bash_aliases() {
     # List of aliases to be added
     aliases_to_add=$(cat <<'EOL'
 alias apta="sudo apt update && sudo apt full-upgrade && sudo apt autoremove -y && sudo apt clean"
-alias kodipi="ssh dietpi@10.0.0.7"
 alias sen="watch -n 1 sensors"
-alias brkpi="ssh dietpi@192.168.1.3"
-alias optiplex="ssh mews@192.168.1.6"
 alias reb="sudo reboot"
 alias dcupd="docker compose up -d"
 alias dcupdlog="docker compose up -d && docker compose logs -f"
@@ -213,12 +210,26 @@ alias dclog="docker compose logs -f"
 alias dcpull="docker compose pull"
 alias dcstop="docker compose stop"
 alias dcdown="docker compose down"
-alias mm="ssh martin@10.0.0.11"
-alias flight="ssh -p 2222 root@flight.rymdfartstyrelsen.se"
-alias prox="ssh root@10.0.0.99"
 alias fanoff="sudo systemctl stop fancontrol.service"
 alias fanon="sudo systemctl start fancontrol.service"
-alias tb="ssh 10.0.0.97"
+alias kodipi="ssh dietpi@10.0.0.7"
+alias dellpi="ssh dietpi@10.0.0.6"
+alias brkpi="ssh dietpi@192.168.1.3"
+alias optiplex="ssh mews@192.168.1.6"
+alias optilight="ssh dietpi@192.168.1.31"
+alias pfsensebrk="ssh -p 2221 admin@192.168.1.1"
+alias pfsense="ssh -p 2221 admin@10.0.0.1"
+alias newyork="ssh dietpi@newyork.stockzell.se"
+alias flight="ssh root@192.168.1.123"
+alias london="ssh dietpi@london.stockzell.se"
+alias nyc="ssh dietpi@newyork.stockzell.se"
+alias ned="ssh dietpi@ned.stockzell.se"
+alias tb="ssh dietpi@10.0.0.97"
+alias prox="ssh root@10.0.0.99"
+alias proxtor="ssh dietpi@10.0.0.97"
+alias teslamate="ssh dietpi@10.0.0.14"
+alias testpi="ssh dietpi@10.0.0.8"
+alias ff="fastfetch -c all.jsonc"
 EOL
 )
 
@@ -335,7 +346,7 @@ install_docker_ce() {
     log "Installing Docker CE and related tools."
 
     # Install Docker CE and tools
-    sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose -y
+    sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras -y
     sudo usermod -aG docker $SUDO_USER
 
     log "Docker CE and tools installed successfully."
