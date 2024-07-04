@@ -220,7 +220,7 @@ if [ -x /usr/bin/dircolors ]; then
 fi
 
 if [ -f ~/.bash_aliases ]; then
-    . ~/.bash_aliases
+    source ~/.bash_aliases
 fi
 EOL
 
@@ -228,7 +228,7 @@ EOL
 
     # Source .bashrc
     if [ -f "$BASHRC_FILE" ]; then
-        . "$BASHRC_FILE"
+        source "$BASHRC_FILE"
     fi
 }
 
@@ -284,7 +284,7 @@ EOL
 
     # Source .bash_aliases
     if [ -f "$BASH_ALIASES_FILE" ]; then
-        . "$BASH_ALIASES_FILE"
+        source "$BASH_ALIASES_FILE"
     fi
 }
 
