@@ -166,8 +166,8 @@ create_bashrc() {
     sudo -u $SUDO_USER mkdir -p "$(dirname "$BASHRC_FILE")"
 
     # .bashrc content
-    cat <<'EOL' | sudo -u $SUDO_USER tee -a "$BASHRC_FILE" > /dev/null
-case $- in
+    cat <<EOL | sudo -u $SUDO_USER tee -a "$BASHRC_FILE" > /dev/null
+case \$- in
     *i*) ;;
     *) return;;
 esac
@@ -225,11 +225,6 @@ fi
 EOL
 
     log ".bashrc file created/updated successfully for user: $SUDO_USER."
-
-    # Source .bashrc
-    if [ -f "$BASHRC_FILE" ]; then
-        source "$BASHRC_FILE"
-    fi
 }
 
 # Function to create or update .bash_aliases file
@@ -281,11 +276,6 @@ EOL
     echo "$aliases_to_add" | sudo -u $SUDO_USER tee "$BASH_ALIASES_FILE" > /dev/null
 
     log ".bash_aliases file created/updated successfully for user: $SUDO_USER."
-
-    # Source .bash_aliases
-    if [ -f "$BASH_ALIASES_FILE" ]; then
-        source "$BASH_ALIASES_FILE"
-    fi
 }
 
 # Function to install and configure SNMPD
@@ -402,19 +392,24 @@ run_all_tasks() {
 # Main menu function
 main_menu() {
     while true; do
-        echo "Select an option:"
-        echo "1. System Update and Upgrade"
-        echo "2. Update Sudoers"
-        echo "3. Configure SSH"
-        echo "4. Generate SSH Key"
-        echo "5. Create/Update .bashrc"
-        echo "6. Create/Update .bash_aliases"
-        echo "7. Install and Configure SNMPD"
-        echo "8. Install Docker Repository"
-        echo "9. Install Docker CE and Tools"
-        echo "10. Run All"
-        echo "11. Exit"
-        read -rp "Enter your choice [1-11]: " choice
+        clear
+        echo "#####################################"
+        echo "#   Automated System Configuration  #"
+        echo "#####################################"
+        echo "Please select an option:"
+        echo "  1) System Update and Upgrade"
+        echo "  2) Update sudoers"
+        echo "  3) Configure SSH"
+        echo "  4) Generate SSH Key"
+        echo "  5) Create/Update .bashrc"
+        echo "  6) Create/Update .bash_aliases"
+        echo "  7) Install and Configure SNMPD"
+        echo "  8) Install Docker official repo"
+        echo "  9) Install Docker and relevant tools"
+        echo "  10) Run all tasks"
+        echo "  11) Exit"
+
+        read -rp "Enter your choice: " choice
 
         case $choice in
             1) system_update_upgrade ;;
@@ -427,9 +422,19 @@ main_menu() {
             8) install_docker_repository ;;
             9) install_docker_ce ;;
             10) run_all_tasks ;;
-            11) log "Script execution completed."; exit 0 ;;
-            *) echo "Invalid choice. Please select a valid option." ;;
+            11)
+                log "Script execution completed."
+                log "Please apply the following command manually to source both .bashrc and .bash_aliases files:"
+                echo " . /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
+                echo "Alternatively, you can log out and log back in to start a new shell session."
+                exit 0
+                ;;
+            *)
+                echo "Invalid choice. Please select a valid option."
+                ;;
         esac
+
+        read -rp "Press Enter to continue..."
     done
 }
 
