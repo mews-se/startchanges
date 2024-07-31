@@ -269,6 +269,11 @@ alias proxtor="ssh dietpi@10.0.0.97"
 alias teslamate="ssh dietpi@10.0.0.14"
 alias testpi="ssh dietpi@10.0.0.8"
 alias ff="fastfetch -c all.jsonc"
+alias docker-clean=' \
+  docker container prune -f ; \
+  docker image prune -f ; \
+  docker network prune -f ; \
+  docker volume prune -f '
 EOL
 )
 
