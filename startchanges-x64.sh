@@ -40,7 +40,7 @@
 #   testing prior to deployment.
 
 # List of required commands
-required_commands=("sudo" "apt" "sed" "ssh-keygen" "systemctl" "dpkg" "curl")
+required_commands=("sudo" "apt" "sed" "ssh-keygen" "systemctl" "dpkg" "curl" "git")
 
 # Check if all required commands are available
 for cmd in "${required_commands[@]}"; do
@@ -258,7 +258,7 @@ alias optiplex="ssh mews@192.168.1.6"
 alias pfsensebrk="ssh -p 2221 admin@192.168.1.1"
 alias pfsense="ssh -p 2221 admin@10.0.0.1"
 alias pfsensebrk2="ssh -p 2221 admin@10.0.1.1"
-alias mm="ssh 10.0.0.11"
+alias mm="ssh martin@10.0.0.11"
 alias prox="ssh root@10.0.0.99"
 alias flight="ssh root@192.168.1.123"
 alias london="ssh dietpi@london.stockzell.se"
@@ -457,7 +457,7 @@ main_menu() {
             12)
                 log "Script execution completed."
                 log "Please apply the following command manually to source both .bashrc and .bash_aliases files:"
-                echo " . /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
+                echo ". /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
                 echo "Alternatively, you can log out and log back in to start a new shell session."
                 exit 0
                 ;;
