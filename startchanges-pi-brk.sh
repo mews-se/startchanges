@@ -456,7 +456,7 @@ main_menu() {
             12)
                 log "Script execution completed."
                 log "Please apply the following command manually to source both .bashrc and .bash_aliases files:"
-                echo " . /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
+                echo ". /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
                 echo "Alternatively, you can log out and log back in to start a new shell session."
                 exit 0
                 ;;
