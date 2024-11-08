@@ -40,7 +40,7 @@
 #   testing prior to deployment.
 
 # List of required commands
-required_commands=("sudo" "apt" "sed" "ssh-keygen" "systemctl" "dpkg" "curl" "git")
+required_commands=("sudo" "apt" "sed" "ssh-keygen" "systemctl" "dpkg" "curl")
 
 # Check if all required commands are available
 for cmd in "${required_commands[@]}"; do
