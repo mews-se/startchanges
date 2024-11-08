@@ -40,7 +40,7 @@
 #   testing prior to deployment.
 
 # List of required commands
-required_commands=("sudo" "apt" "sed" "ssh-keygen" "systemctl" "dpkg" "curl")
+required_commands=("sudo" "apt" "sed" "ssh-keygen" "systemctl" "dpkg" "curl" "git")
 
 # Check if all required commands are available
 for cmd in "${required_commands[@]}"; do
@@ -258,7 +258,7 @@ alias optiplex="ssh mews@192.168.1.6"
 alias pfsensebrk="ssh -p 2221 admin@192.168.1.1"
 alias pfsense="ssh -p 2221 admin@10.0.0.1"
 alias pfsensebrk2="ssh -p 2221 admin@10.0.1.1"
-alias mm="ssh 10.0.0.11"
+alias mm="ssh martin@10.0.0.11"
 alias prox="ssh root@10.0.0.99"
 alias flight="ssh root@192.168.1.123"
 alias london="ssh dietpi@london.stockzell.se"
@@ -373,15 +373,25 @@ install_docker_repository() {
     log "Docker repository installed successfully."
 }
 
-# Function to install Docker CE and related tools
-install_docker_ce() {
-    log "Installing Docker CE and related tools."
+# Function to clone GitHub repository update-fastfetch
+clone_fastfetch_repository() {
+    log "Cloning GitHub repository update-fastfetch."
 
-    # Install Docker CE and tools
-    sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras -y
-    sudo usermod -aG docker $SUDO_USER
+    REPO_URL="https://github.com/mews-se/update-fastfetch.git"
+    DEST_DIR="/home/$SUDO_USER/update-fastfetch"
 
-    log "Docker CE and tools installed successfully. User added to the group docker"
+    # Check if the directory already exists
+    if [ -d "$DEST_DIR" ]; then
+        log "Repository already exists at $DEST_DIR. Skipping cloning."
+    else
+        # Clone the repository
+        if sudo -u $SUDO_USER git clone "$REPO_URL" "$DEST_DIR"; then
+            log "Repository cloned successfully to $DEST_DIR."
+        else
+            log "Failed to clone repository. Check the URL or network connection."
+            return 1
+        fi
+    fi
 }
 
 # Function to run all tasks
@@ -395,6 +405,7 @@ run_all_tasks() {
     install_configure_snmpd
     install_docker_repository
     install_docker_ce
+    clone_fastfetch_repository
 }
 
 # Main menu function
@@ -414,8 +425,9 @@ main_menu() {
         echo "  7) Install and Configure SNMPD"
         echo "  8) Install Docker official repo"
         echo "  9) Install Docker and relevant tools"
-        echo "  10) Run all tasks"
-        echo "  11) Exit"
+        echo "  10) Clone the update-fastfetch repo"
+        echo "  11) Run all tasks"
+        echo "  12) Exit"
 
         read -rp "Enter your choice: " choice
 
@@ -429,8 +441,9 @@ main_menu() {
             7) install_configure_snmpd ;;
             8) install_docker_repository ;;
             9) install_docker_ce ;;
-            10) run_all_tasks ;;
-            11)
+            10) clone_fastfetch_repository ;;
+            11) run_all_tasks ;;
+            12)
                 log "Script execution completed."
                 log "Please apply the following command manually to source both .bashrc and .bash_aliases files:"
                 echo " . /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
