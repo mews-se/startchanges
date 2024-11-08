@@ -269,7 +269,6 @@ alias prox="ssh root@10.0.0.99"
 alias brk2="ssh dietpi@10.0.1.7"
 alias teslamate="ssh dietpi@10.0.0.14"
 alias testpi="ssh dietpi@10.0.0.8"
-alias proxtor="ssh dietpi@10.0.0.97"
 alias ff="fastfetch -c all.jsonc"
 alias fa="fastfetch"
 alias docker-clean=' \
