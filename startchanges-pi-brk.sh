@@ -58,9 +58,18 @@ log() {
 
 log "Script execution started."
 
-# Function to perform system update and upgrade
+# Function to perform system update and upgrade, and adding apt-cacher proxy
 system_update_upgrade() {
     log "Running system update and upgrade."
+
+    # Add proxy configuration to /etc/apt/apt.conf.d/02proxy if it doesn't exist
+    if [ ! -f /etc/apt/apt.conf.d/02proxy ]; then
+        log "Adding proxy configuration to /etc/apt/apt.conf.d/02proxy."
+        echo 'Acquire::http::Proxy "http://10.0.0.20:3142";' | sudo tee /etc/apt/apt.conf.d/02proxy > /dev/null
+        echo 'Acquire::https::Proxy "false";' | sudo tee -a /etc/apt/apt.conf.d/02proxy > /dev/null
+    else
+        log "Proxy configuration already exists in /etc/apt/apt.conf.d/02proxy."
+    fi
 
     # Update package lists
     if ! sudo apt update; then
@@ -76,6 +85,7 @@ system_update_upgrade() {
 
     log "Apt update and full-upgrade completed successfully."
 }
+
 
 # Function to update sudoers
 update_sudoers() {
