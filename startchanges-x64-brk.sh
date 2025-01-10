@@ -58,23 +58,49 @@ declare -A required_commands=(
     [nc]="netcat-traditional"
 )
 
-# Ensure all required commands are available
+# Find missing commands
+missing_packages=()
 for cmd in "${!required_commands[@]}"; do
     if ! command -v "$cmd" &>/dev/null; then
-        package="${required_commands[$cmd]}"
-        log "Installing missing package: $package..."
-        
-        # Update package list and install the package
-        if sudo apt-get update && sudo apt-get install -y "$package"; then
-            log "Successfully installed $package."
-        else
-            log "Error: Failed to install $package."
-            exit 1
-        fi
+        missing_packages+=("${required_commands[$cmd]}")
     else
         log "$cmd is already installed."
     fi
 done
+
+# Install missing packages in parallel
+if [ "${#missing_packages[@]}" -gt 0 ]; then
+    log "Installing missing packages: ${missing_packages[*]}"
+
+    # Try parallel installation first
+    if echo "${missing_packages[@]}" | xargs -n1 -P4 sudo apt-get install -y; then
+        log "Parallel installation successful."
+    else
+        log "Parallel installation failed. Retrying one by one..."
+
+        # Fallback: Install packages one by one
+        for package in "${missing_packages[@]}"; do
+            if ! sudo apt-get install -y "$package"; then
+                log "Error: Failed to install $package even after retry."
+                exit 1
+            fi
+            log "Successfully installed $package after retry."
+        done
+    fi
+else
+    log "All required packages are already installed."
+fi
+
+# Double-check installation
+for cmd in "${!required_commands[@]}"; do
+    if ! command -v "$cmd" &>/dev/null; then
+        log "Critical Error: $cmd is still not available after all installation attempts. Exiting."
+        exit 1
+    fi
+done
+
+log "All required commands are now available."
+
 
 # Function log: Logs messages with timestamp
 log() {
