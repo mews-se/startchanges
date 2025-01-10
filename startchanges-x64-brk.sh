@@ -40,7 +40,7 @@
 #   testing prior to deployment.
 
 # List of required commands
-required_commands=("sudo" "apt" "sed" "ssh-keygen" "systemctl" "dpkg" "curl" "git")
+required_commands=("sudo" "apt" "sed" "ssh-keygen" "systemctl" "dpkg" "curl" "git" "netcat-traditional")
 
 # Check if all required commands are available
 for cmd in "${required_commands[@]}"; do
@@ -62,13 +62,26 @@ log "Script execution started."
 system_update_upgrade() {
     log "Running system update and upgrade."
 
-    # Add proxy configuration to /etc/apt/apt.conf.d/02proxy if it doesn't exist
-    if [ ! -f /etc/apt/apt.conf.d/02proxy ]; then
-        log "Adding proxy configuration to /etc/apt/apt.conf.d/02proxy."
-        echo 'Acquire::http::Proxy "http://10.0.0.20:3142";' | sudo tee /etc/apt/apt.conf.d/02proxy > /dev/null
-        echo 'Acquire::https::Proxy "false";' | sudo tee -a /etc/apt/apt.conf.d/02proxy > /dev/null
+    # Proxy configuration file path
+    proxy_config="/etc/apt/apt.conf.d/02proxy"
+
+    # Check if the proxy server is reachable
+    if nc -w1 -z 10.0.0.20 3142; then
+        log "Proxy server is reachable. Configuring proxy for APT."
+
+        # Add or update proxy configuration
+        if [ ! -f "$proxy_config" ] || ! grep -q "10.0.0.20:3142" "$proxy_config"; then
+            log "Adding proxy configuration to $proxy_config."
+            sudo tee "$proxy_config" > /dev/null <<EOF
+Acquire::http::Proxy "http://10.0.0.20:3142";
+Acquire::https::Proxy "http://10.0.0.20:3142";
+EOF
+        else
+            log "Proxy configuration already exists in $proxy_config."
+        fi
     else
-        log "Proxy configuration already exists in /etc/apt/apt.conf.d/02proxy."
+        log "Warning: Proxy server is not reachable. Removing proxy configuration."
+        sudo rm -f "$proxy_config"
     fi
 
     # Update package lists
@@ -85,7 +98,6 @@ system_update_upgrade() {
 
     log "Apt update and full-upgrade completed successfully."
 }
-
 
 # Function to update sudoers
 update_sudoers() {
