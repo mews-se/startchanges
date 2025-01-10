@@ -39,14 +39,30 @@
 #   adapting the script to suit specific requirements and conducting thorough
 #   testing prior to deployment.
 
-# List of required commands
-required_commands=("sudo" "apt" "sed" "ssh-keygen" "systemctl" "dpkg" "curl" "git" "netcat-traditional")
+# List of required commands and corresponding packages
+declare -A required_commands=(
+    [sudo]="sudo"
+    [apt]="apt"
+    [sed]="sed"
+    [ssh-keygen]="openssh-client"
+    [systemctl]="systemd"
+    [dpkg]="dpkg"
+    [curl]="curl"
+    [git]="git"
+    [nc]="netcat-traditional"
+)
 
-# Check if all required commands are available
-for cmd in "${required_commands[@]}"; do
+# Check if all required commands are available, install if missing
+for cmd in "${!required_commands[@]}"; do
     if ! command -v "$cmd" &>/dev/null; then
-        echo "Error: $cmd command not found. Please make sure it's installed and in your PATH." >&2
-        exit 1
+        package="${required_commands[$cmd]}"
+        echo "Installing missing package: $package..."
+        if ! sudo apt-get update && sudo apt-get install -y "$package"; then
+            echo "Error: Failed to install $package. Please check your network connection and package sources." >&2
+            exit 1
+        fi
+    else
+        echo "$cmd is already installed."
     fi
 done
 
