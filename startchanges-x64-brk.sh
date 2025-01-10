@@ -39,6 +39,12 @@
 #   adapting the script to suit specific requirements and conducting thorough
 #   testing prior to deployment.
 
+# Logging function
+log() {
+    local message="$1"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $message"
+}
+
 # List of required commands and corresponding packages
 declare -A required_commands=(
     [sudo]="sudo"
@@ -52,17 +58,21 @@ declare -A required_commands=(
     [nc]="netcat-traditional"
 )
 
-# Check if all required commands are available, install if missing
+# Ensure all required commands are available
 for cmd in "${!required_commands[@]}"; do
     if ! command -v "$cmd" &>/dev/null; then
         package="${required_commands[$cmd]}"
-        echo "Installing missing package: $package..."
-        if ! sudo apt-get update && sudo apt-get install -y "$package"; then
-            echo "Error: Failed to install $package. Please check your network connection and package sources." >&2
+        log "Installing missing package: $package..."
+        
+        # Update package list and install the package
+        if sudo apt-get update && sudo apt-get install -y "$package"; then
+            log "Successfully installed $package."
+        else
+            log "Error: Failed to install $package."
             exit 1
         fi
     else
-        echo "$cmd is already installed."
+        log "$cmd is already installed."
     fi
 done
 
