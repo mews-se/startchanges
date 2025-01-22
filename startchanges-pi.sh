@@ -31,6 +31,9 @@
 #   controlled, non-production environment to evaluate its impact and
 #   functionality specific to your system configuration.
 #
+#   This script is intended for Debian-based distributions. Ensure compatibility
+#   with your specific operating system before running the script.
+#
 #   The author assumes no responsibility for any unintended consequences,
 #   including but not limited to data loss, system downtime, or security
 #   breaches, resulting from the use of this script. By executing the script,
@@ -42,7 +45,8 @@
 ###############################################################################
 
 ###############################################################################
-# LOG FUNCTION
+    # Usage: log "Message" ["LEVEL"]
+    # Example: log "System update started" "INFO"
 ###############################################################################
 log() {
     # Usage: log "Message" ["LEVEL"]
@@ -52,20 +56,20 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - [$level] $message"
 }
 
-###############################################################################
 # OPTIONAL: CHECK_COMMAND FUNCTION
 # (Call this function before critical operations if you want to ensure
 #  a specific command is available.)
 ###############################################################################
 check_command() {
     local cmd="$1"
-    if ! command -v "$cmd" &>/dev/null; then
-        log "Command '$cmd' not found. Please install it before proceeding." "ERROR"
-        return 1
-    else
+    if command -v "$cmd" &>/dev/null; then
         log "Command '$cmd' is available." "INFO"
         return 0
+    else
+        log "Command '$cmd' not found. Please install it before proceeding." "ERROR"
+        return 1
     fi
+}
 }
 
 ###############################################################################
@@ -216,11 +220,12 @@ configure_ssh() {
     log "Configuring SSH."
 
     # Check if AllowUsers line already exists
+    local permit_root_login="PermitRootLogin no"
     if sudo grep -q '^AllowUsers dietpi mews$' /etc/ssh/sshd_config; then
         log "AllowUsers already configured. No changes needed."
     else
         # Ensure PermitRootLogin is set to no
-        if sudo sed -E -i '/PermitRootLogin/s/^#?(PermitRootLogin).*/\1 no/' /etc/ssh/sshd_config; then
+        if sudo sed -E -i "/PermitRootLogin/s/^#?(PermitRootLogin).*/$permit_root_login/" /etc/ssh/sshd_config; then
             log "PermitRootLogin set to no."
         else
             log "Failed to set PermitRootLogin to no. Check configuration manually." "ERROR"
@@ -286,67 +291,67 @@ create_bashrc() {
         sudo -u "$SUDO_USER" rm "$BASHRC_FILE"
         log "Removed existing .bashrc file."
     fi
-
     # Ensure home directory exists
     sudo -u "$SUDO_USER" mkdir -p "$(dirname "$BASHRC_FILE")"
 
     # .bashrc content
     cat <<'EOL' | sudo -u "$SUDO_USER" tee -a "$BASHRC_FILE" > /dev/null
-case $- in
-    *i*) ;;
-    *) return;;
-esac
+    case $- in
+        *i*) ;;
+        *) return;;
+    esac
 
-HISTCONTROL=ignoreboth
-shopt -s histappend
-HISTSIZE=1000
-HISTFILESIZE=2000
-shopt -s checkwinsize
+    HISTCONTROL=ignoreboth
+    shopt -s histappend
+    HISTSIZE=1000
+    HISTFILESIZE=2000
+    shopt -s checkwinsize
 
-if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
-    debian_chroot=$(cat /etc/debian_chroot)
-fi
-
-case "$TERM" in
-    xterm-color|*-256color) color_prompt=yes;;
-esac
-
-force_color_prompt=yes
-
-if [ -n "$force_color_prompt" ]; then
-    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
-        color_prompt=yes
-    else
-        color_prompt=
+    if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
+        debian_chroot=$(cat /etc/debian_chroot)
     fi
-fi
 
-if [ "$color_prompt" = yes ]; then
-    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w \$\[\033[00m\] '
-else
-    PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
-fi
-unset color_prompt force_color_prompt
+    case "$TERM" in
+        xterm-color|*-256color) color_prompt=yes;;
+    esac
 
-case "$TERM" in
-xterm*|rxvt*)
-    PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]$PS1"
-    ;;
-*)
-    ;;
-esac
+    force_color_prompt=yes
 
-if [ -x /usr/bin/dircolors ]; then
-    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
-    alias ls='ls --color=auto'
-    alias grep='grep --color=auto'
-    alias fgrep='fgrep --color=auto'
-    alias egrep='egrep --color=auto'
-fi
+    if [ -n "$force_color_prompt" ]; then
+        if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
+            color_prompt=yes
+        else
+            color_prompt=
+        fi
+    fi
 
-if [ -f ~/.bash_aliases ]; then
-    source ~/.bash_aliases
-fi
+    if [ "$color_prompt" = yes ]; then
+        PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w \$\[\033[00m\] '
+    else
+        PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+    fi
+    unset color_prompt force_color_prompt
+
+    case "$TERM" in
+    xterm*|rxvt*)
+        PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]$PS1"
+        ;;
+    *)
+        ;;
+    esac
+
+    if [ -x /usr/bin/dircolors ]; then
+        test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+        alias ls='ls --color=auto'
+        alias grep='grep --color=auto'
+        alias fgrep='fgrep --color=auto'
+        alias egrep='egrep --color=auto'
+    fi
+
+    if [ -f ~/.bash_aliases ]; then
+        source ~/.bash_aliases
+    fi
+EOL
 EOL
 
     log ".bashrc file created/updated successfully for user: $SUDO_USER."
@@ -541,8 +546,8 @@ clone_fastfetch_repository() {
     if [ -d "$DEST_DIR" ]; then
         log "Repository already exists at $DEST_DIR. Skipping cloning."
     else
-        # Clone the repository
-        if sudo -u "$SUDO_USER" git clone "$REPO_URL" "$DEST_DIR"; then
+        # Clone the repository with --depth 1 flag
+        if sudo -u "$SUDO_USER" git clone --depth 1 "$REPO_URL" "$DEST_DIR"; then
             log "Repository cloned successfully to $DEST_DIR."
         else
             log "Failed to clone repository. Check the URL or network connection." "ERROR"
@@ -627,7 +632,7 @@ main_menu() {
             12)
                 log "Script execution completed."
                 log "Please apply the following command manually to source both .bashrc and .bash_aliases files:"
-                echo ". /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
+                echo "\`. /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases\`"
                 echo "Alternatively, log out and log back in to start a new shell session."
                 exit 0
                 ;;

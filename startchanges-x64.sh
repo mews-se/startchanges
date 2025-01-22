@@ -158,15 +158,18 @@ system_update_upgrade() {
     local proxy_config="/etc/apt/apt.conf.d/02proxy"
 
     # Check if the proxy server is reachable
-    if nc -w1 -z 10.0.0.20 3142; then
+    PROXY_IP="${PROXY_IP:-10.0.0.20}"
+    PROXY_PORT="${PROXY_PORT:-3142}"
+
+    if nc -w1 -z "$PROXY_IP" "$PROXY_PORT"; then
         log "Proxy server is reachable. Configuring proxy for APT."
         # Add or update proxy configuration
         if [ ! -f "$proxy_config" ] || ! grep -q "10.0.0.20:3142" "$proxy_config"; then
             log "Adding proxy configuration to $proxy_config."
-            sudo tee "$proxy_config" > /dev/null <<EOF
+            sudo tee "$proxy_config" > /dev/null <<EOL
 Acquire::http::Proxy "http://10.0.0.20:3142";
 Acquire::https::Proxy "http://10.0.0.20:3142";
-EOF
+EOL
         else
             log "Proxy configuration already exists in $proxy_config."
         fi
@@ -217,7 +220,7 @@ configure_ssh() {
 
     # Check if AllowUsers line already exists
     if sudo grep -q '^AllowUsers dietpi mews$' /etc/ssh/sshd_config; then
-        log "AllowUsers already configured. No changes needed."
+        log "AllowUsers line already exists in sshd_config."
     else
         # Ensure PermitRootLogin is set to no
         if sudo sed -E -i '/PermitRootLogin/s/^#?(PermitRootLogin).*/\1 no/' /etc/ssh/sshd_config; then
@@ -249,9 +252,13 @@ configure_ssh() {
 
 ###############################################################################
 # FUNCTION: generate_ssh_key
-###############################################################################
 generate_ssh_key() {
     log "Generating SSH key."
+
+    if [ -z "$SUDO_USER" ]; then
+        log "Error: SUDO_USER variable is not set. Please run the script with sudo." "ERROR"
+        return 1
+    fi
 
     local SSH_DIR="/home/$SUDO_USER/.ssh"
     local KEY_FILE="$SSH_DIR/id_ed25519"
@@ -358,57 +365,73 @@ EOL
 create_bash_aliases() {
     log "Creating/updating .bash_aliases file."
 
-    local BASH_ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
+        local BASH_ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
+    
+        # List of aliases to be added with documentation
+        local aliases_to_add=$(cat <<'EOL'
+    # Update and upgrade system packages
+    alias apta="sudo apt update && sudo apt full-upgrade && sudo apt autoremove -y && sudo apt clean"
+    
+    # Monitor system sensors
+    alias sen="watch -n 1 sensors"
+    
+    # Reboot the system
+    alias reb="sudo reboot"
+    
+    # Docker compose commands
+    alias dcupd="docker compose up -d"
+    alias dcupdlog="docker compose up -d && docker compose logs -f"
+    alias dclog="docker compose logs -f"
+    alias dcpull="docker compose pull"
+    alias dcstop="docker compose stop"
+    alias dcdown="docker compose down"
+    
+    # Control fan service
+    alias fanoff="sudo systemctl stop fancontrol.service"
+    alias fanon="sudo systemctl start fancontrol.service"
+    
+    # SSH shortcuts to various hosts
+    alias kodipi="ssh dietpi@10.0.0.7"
+    alias dellpi="ssh dietpi@10.0.0.6"
+    alias brkpi="ssh dietpi@10.0.1.13"
+    alias optiplex="ssh mews@192.168.1.6"
+    alias pfsensebrk="ssh -p 2221 admin@192.168.1.1"
+    alias pfsense="ssh -p 2221 admin@10.0.0.1"
+    alias pfsensebrk2="ssh -p 2221 admin@10.0.1.1"
+    alias mm="ssh martin@10.0.0.11"
+    alias prox="ssh root@10.0.0.99"
+    alias flight="ssh root@192.168.1.123"
+    alias london="ssh dietpi@london.stockzell.se"
+    alias nyc="ssh dietpi@nyc.stockzell.se"
+    alias ned="ssh dietpi@ned.stockzell.se"
+    alias tb="ssh dietpi@10.0.0.97"
+    alias brk2="ssh dietpi@10.0.1.7"
+    alias teslamate="ssh dietpi@10.0.0.14"
+    alias testpi="ssh dietpi@10.0.0.8"
+    
+    # Fastfetch commands
+    alias ff="fastfetch -c all.jsonc"
+    alias fa="fastfetch"
+    
+    # SSH shortcuts to nuclear power plants
+    alias oskarshamn="ssh dietpi@oskarshamn.karnkraft.org"
+    alias forsmark="ssh dietpi@forsmark.karnkraft.org"
+    alias ringhals="ssh dietpi@ringhals.karnkraft.org"
+    
+    # Clean up Docker resources
+    alias docker-clean=' \
+      docker container prune -f ; \
+      docker image prune -f ; \
+      docker network prune -f ; \
+      docker volume prune -f '
+    EOL
+    )
 
     # Remove .bash_aliases if it exists
     if [ -f "$BASH_ALIASES_FILE" ]; then
         sudo -u "$SUDO_USER" rm "$BASH_ALIASES_FILE"
         log "Removed existing .bash_aliases file."
     fi
-
-    # List of aliases to be added
-    local aliases_to_add=$(cat <<'EOL'
-alias apta="sudo apt update && sudo apt full-upgrade && sudo apt autoremove -y && sudo apt clean"
-alias sen="watch -n 1 sensors"
-alias reb="sudo reboot"
-alias dcupd="docker compose up -d"
-alias dcupdlog="docker compose up -d && docker compose logs -f"
-alias dclog="docker compose logs -f"
-alias dcpull="docker compose pull"
-alias dcstop="docker compose stop"
-alias dcdown="docker compose down"
-alias fanoff="sudo systemctl stop fancontrol.service"
-alias fanon="sudo systemctl start fancontrol.service"
-alias kodipi="ssh dietpi@10.0.0.7"
-alias dellpi="ssh dietpi@10.0.0.6"
-alias brkpi="ssh dietpi@10.0.1.13"
-alias optiplex="ssh mews@192.168.1.6"
-alias pfsensebrk="ssh -p 2221 admin@192.168.1.1"
-alias pfsense="ssh -p 2221 admin@10.0.0.1"
-alias pfsensebrk2="ssh -p 2221 admin@10.0.1.1"
-alias mm="ssh martin@10.0.0.11"
-alias prox="ssh root@10.0.0.99"
-alias flight="ssh root@192.168.1.123"
-alias london="ssh dietpi@london.stockzell.se"
-alias nyc="ssh dietpi@nyc.stockzell.se"
-alias ned="ssh dietpi@ned.stockzell.se"
-alias tb="ssh dietpi@10.0.0.97"
-alias prox="ssh root@10.0.0.99"
-alias brk2="ssh dietpi@10.0.1.7"
-alias teslamate="ssh dietpi@10.0.0.14"
-alias testpi="ssh dietpi@10.0.0.8"
-alias ff="fastfetch -c all.jsonc"
-alias fa="fastfetch"
-alias oskarshamn="ssh dietpi@oskarshamn.karnkraft.org"
-alias forsmark="ssh dietpi@forsmark.karnkraft.org"
-alias ringhals="ssh dietpi@ringhals.karnkraft.org"
-alias docker-clean=' \
-  docker container prune -f ; \
-  docker image prune -f ; \
-  docker network prune -f ; \
-  docker volume prune -f '
-EOL
-)
 
     # Create/append the .bash_aliases file
     echo "$aliases_to_add" | sudo -u "$SUDO_USER" tee "$BASH_ALIASES_FILE" > /dev/null
@@ -498,9 +521,17 @@ install_docker_repository() {
     # Create keyrings directory if needed
     sudo install -m 0755 -d /etc/apt/keyrings
 
-    # Add Docker's GPG key
-    sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-    sudo chmod a+r /etc/apt/keyrings/docker.asc
+    # Verify Docker's GPG key URL
+    DOCKER_GPG_URL="https://download.docker.com/linux/debian/gpg"
+    if curl --output /dev/null --silent --head --fail "$DOCKER_GPG_URL"; then
+        log "Docker GPG key URL is valid."
+        # Add Docker's GPG key
+        sudo curl -fsSL "$DOCKER_GPG_URL" -o /etc/apt/keyrings/docker.asc
+        sudo chmod a+r /etc/apt/keyrings/docker.asc
+    else
+        log "Error: Docker GPG key URL is not reachable. Please check the URL." "ERROR"
+        exit 1
+    fi
 
     # Add the Docker repository to Apt sources
     echo \
@@ -523,10 +554,10 @@ install_docker_ce() {
     sudo apt install -y docker-ce docker-ce-cli containerd.io \
                        docker-buildx-plugin docker-compose-plugin \
                        docker-ce-rootless-extras
-    sudo usermod -aG docker "$SUDO_USER"
+clone_fastfetch_repository() {
+    log "Cloning GitHub repository update-fastfetch."
 
-    log "Docker CE and tools installed successfully. User added to group 'docker'."
-}
+    local REPO_URL="${REPO_URL:-https://github.com/mews-se/update-fastfetch.git}"
 
 ###############################################################################
 # FUNCTION: clone_fastfetch_repository
@@ -567,10 +598,6 @@ run_all_tasks() {
     clone_fastfetch_repository
 
     summary_report
-}
-
-###############################################################################
-# FUNCTION: summary_report
 ###############################################################################
 summary_report() {
     log "Summary Report:"
@@ -626,14 +653,19 @@ main_menu() {
             11) run_all_tasks ;;
             12)
                 log "Script execution completed."
-                log "Please apply the following command manually to source both .bashrc and .bash_aliases files:"
-                echo ". /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
-                echo "Alternatively, log out and log back in to start a new shell session."
+                log "To apply the changes made to .bashrc and .bash_aliases, you need to source these files."
+                log "Sourcing a file means reloading it without logging out and back in."
+                log "Run the following command in your terminal:"
+                echo "source /home/$SUDO_USER/.bashrc && source /home/$SUDO_USER/.bash_aliases"
+                log "Alternatively, you can log out and log back in to start a new shell session."
                 exit 0
                 ;;
             *)
-                echo "Invalid choice. Please select a valid option."
-                ;;
+# Define the repository URL variable
+REPO_URL="https://github.com/mews-se/update-fastfetch.git"
+
+# Execute the main menu function
+main_menu
         esac
 
         read -rp "Press Enter to continue..."

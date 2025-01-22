@@ -46,6 +46,7 @@
 ###############################################################################
 log() {
     # Usage: log "Message" ["LEVEL"]
+    # LEVEL can be INFO, WARN, ERROR, etc. Defaults to INFO if not specified.
     # LEVEL can be INFO, WARN, ERROR, etc. Defaults to INFO.
     local message="$1"
     local level="${2:-INFO}"
@@ -108,7 +109,7 @@ if [ "${#missing_packages[@]}" -gt 0 ]; then
 
     # Attempt parallel installation first
     failed_packages=()
-    if ! echo "${missing_packages[@]}" | xargs -n1 -P9 sudo apt-get install -y; then
+    if ! echo "${missing_packages[@]}" | xargs -r -n1 -P9 sudo apt-get install -y; then
         log "Parallel installation failed. Retrying packages one by one..." "WARN"
 
         # Fallback: Install packages one by one
@@ -291,7 +292,7 @@ create_bashrc() {
     sudo -u "$SUDO_USER" mkdir -p "$(dirname "$BASHRC_FILE")"
 
     # .bashrc content
-    cat <<'EOL' | sudo -u "$SUDO_USER" tee -a "$BASHRC_FILE" > /dev/null
+    cat <<'EOF' | sudo -u "$SUDO_USER" tee -a "$BASHRC_FILE" > /dev/null
 case $- in
     *i*) ;;
     *) return;;
@@ -347,7 +348,7 @@ fi
 if [ -f ~/.bash_aliases ]; then
     source ~/.bash_aliases
 fi
-EOL
+EOF
 
     log ".bashrc file created/updated successfully for user: $SUDO_USER."
 }
@@ -626,9 +627,9 @@ main_menu() {
             11) run_all_tasks ;;
             12)
                 log "Script execution completed."
-                log "Please apply the following command manually to source both .bashrc and .bash_aliases files:"
+                log "Please restart your shell session to apply the changes made to .bashrc and .bash_aliases."
+                log "You can either log out and log back in, or run the following command manually:"
                 echo ". /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
-                echo "Alternatively, log out and log back in to start a new shell session."
                 exit 0
                 ;;
             *)

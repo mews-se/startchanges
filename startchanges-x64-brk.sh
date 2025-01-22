@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# Ensure SUDO_USER is set or provide a fallback
+if [ -z "$SUDO_USER" ]; then
+    log "SUDO_USER is not set. Please run the script with sudo." "ERROR"
+    exit 1
+fi
+
+# Proxy configuration
+PROXY_IP="${PROXY_IP:-10.0.0.20}"
+PROXY_PORT="${PROXY_PORT:-3142}"
+
 ###############################################################################
 # Author: mews_se
 # Description:
@@ -92,7 +102,7 @@ for cmd in "${!required_commands[@]}"; do
     if ! command -v "$cmd" &>/dev/null; then
         missing_packages+=("${required_commands[$cmd]}")
     else
-        log "$cmd is already installed."
+        log "$cmd is already installed." "INFO"
     fi
 done
 
@@ -158,14 +168,17 @@ system_update_upgrade() {
     local proxy_config="/etc/apt/apt.conf.d/02proxy"
 
     # Check if the proxy server is reachable
-    if nc -w1 -z 10.0.0.20 3142; then
+    PROXY_IP="${PROXY_IP:-10.0.0.20}"
+    PROXY_PORT="${PROXY_PORT:-3142}"
+
+    if nc -w1 -z "$PROXY_IP" "$PROXY_PORT"; then
         log "Proxy server is reachable. Configuring proxy for APT."
         # Add or update proxy configuration
-        if [ ! -f "$proxy_config" ] || ! grep -q "10.0.0.20:3142" "$proxy_config"; then
+        if [ ! -f "$proxy_config" ] || ! grep -q "$PROXY_IP:$PROXY_PORT" "$proxy_config"; then
             log "Adding proxy configuration to $proxy_config."
             sudo tee "$proxy_config" > /dev/null <<EOF
-Acquire::http::Proxy "http://10.0.0.20:3142";
-Acquire::https::Proxy "http://10.0.0.20:3142";
+Acquire::http::Proxy "http://$PROXY_IP:$PROXY_PORT";
+Acquire::https::Proxy "http://$PROXY_IP:$PROXY_PORT";
 EOF
         else
             log "Proxy configuration already exists in $proxy_config."
@@ -217,7 +230,11 @@ configure_ssh() {
 
     # Check if AllowUsers line already exists
     if sudo grep -q '^AllowUsers dietpi mews$' /etc/ssh/sshd_config; then
-        log "AllowUsers already configured. No changes needed."
+        if sudo grep -q '^PermitRootLogin' /etc/ssh/sshd_config; then
+            sudo sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+        else
+        if sudo sed -E -i '/^#?PermitRootLogin/s/^#?(PermitRootLogin).*/\1 no/' /etc/ssh/sshd_config; then
+        fi
     else
         # Ensure PermitRootLogin is set to no
         if sudo sed -E -i '/PermitRootLogin/s/^#?(PermitRootLogin).*/\1 no/' /etc/ssh/sshd_config; then
@@ -285,7 +302,7 @@ create_bashrc() {
     if [ -f "$BASHRC_FILE" ]; then
         sudo -u "$SUDO_USER" rm "$BASHRC_FILE"
         log "Removed existing .bashrc file."
-    fi
+    cat <<'EOF' | sudo -u "$SUDO_USER" tee -a "$BASHRC_FILE" > /dev/null
 
     # Ensure home directory exists
     sudo -u "$SUDO_USER" mkdir -p "$(dirname "$BASHRC_FILE")"
@@ -341,13 +358,13 @@ if [ -x /usr/bin/dircolors ]; then
     alias ls='ls --color=auto'
     alias grep='grep --color=auto'
     alias fgrep='fgrep --color=auto'
-    alias egrep='egrep --color=auto'
 fi
 
 if [ -f ~/.bash_aliases ]; then
     source ~/.bash_aliases
 fi
 EOL
+EOF
 
     log ".bashrc file created/updated successfully for user: $SUDO_USER."
 }
@@ -434,8 +451,6 @@ install_configure_snmpd() {
     if ! dpkg -l | grep -q "^ii.*snmpd"; then
         sudo apt-get install -y snmpd
         log "Snmpd package installed successfully."
-    else
-        log "Snmpd package is already installed. No changes needed."
     fi
 
     # Create snmpd.conf file with specified content
@@ -498,9 +513,22 @@ install_docker_repository() {
     # Create keyrings directory if needed
     sudo install -m 0755 -d /etc/apt/keyrings
 
+    # Verify Docker repository URL
+    DOCKER_GPG_URL="https://download.docker.com/linux/debian/gpg"
+    if curl -Ifs "$DOCKER_GPG_URL"; then
+        log "Docker GPG URL is reachable."
+    else
+        log "Error: Docker GPG URL is not reachable. Exiting." "ERROR"
+        exit 1
+    fi
+
     # Add Docker's GPG key
-    sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-    sudo chmod a+r /etc/apt/keyrings/docker.asc
+    if sudo curl -fsSL "$DOCKER_GPG_URL" -o /etc/apt/keyrings/docker.asc; then
+        sudo chmod a+r /etc/apt/keyrings/docker.asc
+    else
+        log "Error: Failed to download Docker GPG key. Exiting." "ERROR"
+        exit 1
+    fi
 
     # Add the Docker repository to Apt sources
     echo \
@@ -585,6 +613,9 @@ summary_report() {
     log "Fastfetch Repo: Cloned (if it didn't already exist)"
     log "--------------"
     log "All tasks completed."
+    log "Please apply the following command manually to source both .bashrc and .bash_aliases files:"
+    log ". /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
+    log "Alternatively, log out and log back in to start a new shell session."
 }
 
 ###############################################################################
@@ -610,7 +641,14 @@ main_menu() {
         echo "  11) Run all tasks"
         echo "  12) Exit"
 
-        read -rp "Enter your choice: " choice
+        while true; do
+            read -rp "Enter your choice [1-12]: " choice
+            if [[ "$choice" =~ ^[1-9]$|^1[0-2]$ ]]; then
+                break
+            else
+                echo "Invalid choice. Please select a valid option between 1 and 12."
+            fi
+        done
 
         case "$choice" in
             1) system_update_upgrade ;;
@@ -619,17 +657,17 @@ main_menu() {
             4) generate_ssh_key ;;
             5) create_bashrc ;;
             6) create_bash_aliases ;;
-            7) install_configure_snmpd ;;
-            8) install_docker_repository ;;
-            9) install_docker_ce ;;
-            10) clone_fastfetch_repository ;;
-            11) run_all_tasks ;;
+                log "Please apply the following command manually to source both .bashrc and .bash_aliases files:"
+            6) create_bash_aliases ;;
+                log "Please apply the following command manually to source both .bashrc and .bash_aliases files:"
+                log ". /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
+                log "Alternatively, log out and log back in to start a new shell session." ;;
             12)
                 log "Script execution completed."
                 log "Please apply the following command manually to source both .bashrc and .bash_aliases files:"
                 echo ". /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
                 echo "Alternatively, log out and log back in to start a new shell session."
-                exit 0
+                exit 0 ;;
                 ;;
             *)
                 echo "Invalid choice. Please select a valid option."
