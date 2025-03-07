@@ -398,6 +398,7 @@ alias teslamate="ssh dietpi@10.0.0.14"
 alias testpi="ssh dietpi@10.0.0.8"
 alias ff="fastfetch -c all.jsonc"
 alias fa="fastfetch"
+alias barseback="ssh dietpi@barseback.karnkraft.org"
 alias docker-clean=' \
   docker container prune -f ; \
   docker image prune -f ; \
