@@ -1,5 +1,4 @@
 #!/bin/bash
-
 ###############################################################################
 # Author: mews_se
 # Description:
@@ -41,6 +40,21 @@
 #   testing prior to deployment.
 ###############################################################################
 
+set -euo pipefail
+
+###############################################################################
+# Trap signals for a graceful exit
+###############################################################################
+trap 'echo "Script interrupted. Exiting..."; exit 1' SIGINT SIGTERM
+
+###############################################################################
+# Validate environment: SUDO_USER must be set.
+###############################################################################
+if [ -z "${SUDO_USER:-}" ]; then
+    echo "Error: SUDO_USER is not set. Please run this script with sudo." >&2
+    exit 1
+fi
+
 ###############################################################################
 # LOG FUNCTION
 ###############################################################################
@@ -49,13 +63,15 @@ log() {
     # LEVEL can be INFO, WARN, ERROR, etc. Defaults to INFO.
     local message="$1"
     local level="${2:-INFO}"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - [$level] $message"
+    if [ "$level" = "ERROR" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - [$level] $message" >&2
+    else
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - [$level] $message"
+    fi
 }
 
 ###############################################################################
 # OPTIONAL: CHECK_COMMAND FUNCTION
-# (Call this function before critical operations if you want to ensure
-#  a specific command is available.)
 ###############################################################################
 check_command() {
     local cmd="$1"
@@ -73,10 +89,10 @@ check_command() {
 # (Uses parallel installation with fallback to one-by-one)
 ###############################################################################
 
-# List of required commands and corresponding packages
+# List of required commands and corresponding packages (using apt-get consistently)
 declare -A required_commands=(
     [sudo]="sudo"
-    [apt]="apt"
+    [apt-get]="apt-get"
     [sed]="sed"
     [ssh-keygen]="openssh-client"
     [systemctl]="systemd"
@@ -100,7 +116,7 @@ done
 if [ "${#missing_packages[@]}" -gt 0 ]; then
     log "Installing missing packages: ${missing_packages[*]}"
 
-    # Update apt before installation
+    # Update apt-get before installation
     if ! sudo apt-get update; then
         log "Error updating package lists. Please check your sources and network." "ERROR"
         exit 1
@@ -178,19 +194,19 @@ EOF
         fi
     fi
 
-    # Update package lists
-    if ! sudo apt update; then
+    # Update package lists using apt-get
+    if ! sudo apt-get update; then
         log "Error: Failed to update package lists." "ERROR"
         exit 1
     fi
 
-    # Perform a full upgrade
-    if ! sudo apt full-upgrade -y; then
+    # Perform a full upgrade using dist-upgrade for apt-get
+    if ! sudo apt-get dist-upgrade -y; then
         log "Error: Failed to perform full upgrade." "ERROR"
         exit 1
     fi
 
-    log "Apt update and full-upgrade completed successfully."
+    log "apt-get update and dist-upgrade completed successfully."
 }
 
 ###############################################################################
@@ -199,13 +215,20 @@ EOF
 update_sudoers() {
     log "Updating sudoers."
 
+    local sudoers_file="/etc/sudoers"
+    # Backup sudoers file before modification
+    sudo cp "$sudoers_file" "${sudoers_file}.bak_$(date +%F_%T)"
+
     # Check if the line already exists in sudoers
-    if sudo grep -q '^%sudo ALL=(ALL) NOPASSWD: ALL$' /etc/sudoers; then
+    if sudo grep -q '^%sudo ALL=(ALL) NOPASSWD: ALL$' "$sudoers_file"; then
         log "sudoers entry already exists. No changes needed."
     else
-        # Replace the existing line
-        sudo sed -E -i '/^%sudo/s/.*/%sudo ALL=(ALL) NOPASSWD: ALL/' /etc/sudoers
-        log "sudoers entry updated successfully."
+        if sudo sed -E -i '/^%sudo/s/.*/%sudo ALL=(ALL) NOPASSWD: ALL/' "$sudoers_file"; then
+            log "sudoers entry updated successfully."
+        else
+            log "Failed to update sudoers entry. Check configuration manually." "ERROR"
+            return 1
+        fi
     fi
 }
 
@@ -215,27 +238,27 @@ update_sudoers() {
 configure_ssh() {
     log "Configuring SSH."
 
-    # Check if AllowUsers line already exists
-    if sudo grep -q '^AllowUsers dietpi mews$' /etc/ssh/sshd_config; then
+    local sshd_config="/etc/ssh/sshd_config"
+    # Backup sshd_config before modification
+    sudo cp "$sshd_config" "${sshd_config}.bak_$(date +%F_%T)"
+
+    if sudo grep -q '^AllowUsers dietpi mews$' "$sshd_config"; then
         log "AllowUsers already configured. No changes needed."
     else
-        # Ensure PermitRootLogin is set to no
-        if sudo sed -E -i '/PermitRootLogin/s/^#?(PermitRootLogin).*/\1 no/' /etc/ssh/sshd_config; then
+        if sudo sed -E -i '/PermitRootLogin/s/^#?(PermitRootLogin).*/\1 no/' "$sshd_config"; then
             log "PermitRootLogin set to no."
         else
             log "Failed to set PermitRootLogin to no. Check configuration manually." "ERROR"
             return 1
         fi
 
-        # Add AllowUsers line directly below PermitRootLogin if it doesn't exist
-        if sudo sed -E -i '/PermitRootLogin/a AllowUsers dietpi mews' /etc/ssh/sshd_config; then
+        if sudo sed -E -i '/PermitRootLogin/a AllowUsers dietpi mews' "$sshd_config"; then
             log "AllowUsers line added directly below PermitRootLogin."
         else
             log "Failed to add AllowUsers line. Check configuration manually." "ERROR"
             return 1
         fi
 
-        # Restart SSH service only if changes were made
         if sudo systemctl is-active --quiet sshd && sudo systemctl restart sshd; then
             log "SSH service restarted successfully."
         else
@@ -256,19 +279,14 @@ generate_ssh_key() {
     local SSH_DIR="/home/$SUDO_USER/.ssh"
     local KEY_FILE="$SSH_DIR/id_ed25519"
 
-    # Check if an SSH key already exists
     if [ -f "$KEY_FILE" ]; then
         log "SSH key already exists for $SUDO_USER. Skipping generation."
     else
-        # Force create .ssh folder
         sudo -u "$SUDO_USER" mkdir -p "$SSH_DIR"
-
-        # Generate a new Ed25519 SSH key without passphrase
         sudo -u "$SUDO_USER" ssh-keygen -t ed25519 -f "$KEY_FILE" -N ""
         log "Ed25519 SSH key generated successfully."
     fi
 
-    # Ensure proper permissions on the SSH key file
     sudo -E chmod 600 "$KEY_FILE"
     sudo -E chmod 700 "$SSH_DIR"
 }
@@ -281,16 +299,15 @@ create_bashrc() {
 
     local BASHRC_FILE="/home/$SUDO_USER/.bashrc"
 
-    # Remove .bashrc if it exists
+    # Backup existing .bashrc if it exists
     if [ -f "$BASHRC_FILE" ]; then
+        sudo -u "$SUDO_USER" cp "$BASHRC_FILE" "${BASHRC_FILE}.bak_$(date +%F_%T)"
         sudo -u "$SUDO_USER" rm "$BASHRC_FILE"
-        log "Removed existing .bashrc file."
+        log "Removed existing .bashrc file (backup created)."
     fi
 
-    # Ensure home directory exists
     sudo -u "$SUDO_USER" mkdir -p "$(dirname "$BASHRC_FILE")"
 
-    # .bashrc content
     cat <<'EOL' | sudo -u "$SUDO_USER" tee -a "$BASHRC_FILE" > /dev/null
 case $- in
     *i*) ;;
@@ -360,15 +377,16 @@ create_bash_aliases() {
 
     local BASH_ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
 
-    # Remove .bash_aliases if it exists
+    # Backup existing .bash_aliases if it exists
     if [ -f "$BASH_ALIASES_FILE" ]; then
+        sudo -u "$SUDO_USER" cp "$BASH_ALIASES_FILE" "${BASH_ALIASES_FILE}.bak_$(date +%F_%T)"
         sudo -u "$SUDO_USER" rm "$BASH_ALIASES_FILE"
-        log "Removed existing .bash_aliases file."
+        log "Removed existing .bash_aliases file (backup created)."
     fi
 
-    # List of aliases to be added
+    # List of aliases to be added (duplicate alias 'prox' removed and apt commands standardized)
     local aliases_to_add=$(cat <<'EOL'
-alias apta="sudo apt update && sudo apt full-upgrade && sudo apt autoremove -y && sudo apt clean"
+alias apta="sudo apt-get update && sudo apt-get dist-upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
 alias sen="watch -n 1 sensors"
 alias reb="sudo reboot"
 alias dcupd="docker compose up -d"
@@ -392,7 +410,6 @@ alias flight="ssh root@192.168.1.123"
 alias london="ssh dietpi@london.stockzell.se"
 alias nyc="ssh dietpi@nyc.stockzell.se"
 alias tb="ssh dietpi@10.0.0.97"
-alias prox="ssh root@10.0.0.99"
 alias brk2="ssh dietpi@10.0.1.7"
 alias teslamate="ssh dietpi@10.0.0.14"
 alias testpi="ssh dietpi@10.0.0.8"
@@ -407,7 +424,6 @@ alias docker-clean=' \
 EOL
 )
 
-    # Create/append the .bash_aliases file
     echo "$aliases_to_add" | sudo -u "$SUDO_USER" tee "$BASH_ALIASES_FILE" > /dev/null
 
     log ".bash_aliases file created/updated successfully for user: $SUDO_USER."
@@ -419,7 +435,6 @@ EOL
 install_configure_snmpd() {
     log "Installing and configuring SNMPD."
 
-    # Install lm-sensors package if not already installed
     if ! dpkg -l | grep -q "^ii.*lm-sensors"; then
         sudo apt-get install -y lm-sensors
         log "lm-sensors package installed successfully."
@@ -427,7 +442,6 @@ install_configure_snmpd() {
         log "lm-sensors package is already installed. No changes needed."
     fi
 
-    # Install snmpd package if not already installed
     if ! dpkg -l | grep -q "^ii.*snmpd"; then
         sudo apt-get install -y snmpd
         log "Snmpd package installed successfully."
@@ -435,8 +449,12 @@ install_configure_snmpd() {
         log "Snmpd package is already installed. No changes needed."
     fi
 
-    # Create snmpd.conf file with specified content
     local SNMPD_CONF_FILE="/etc/snmp/snmpd.conf"
+    if [ -f "$SNMPD_CONF_FILE" ]; then
+        sudo cp "$SNMPD_CONF_FILE" "${SNMPD_CONF_FILE}.bak_$(date +%F_%T)"
+        log "Existing snmpd.conf backed up."
+    fi
+
     local SNMPD_CONF_CONTENT
     SNMPD_CONF_CONTENT=$(cat <<'EOL'
 sysLocation    Sitting on the Dock of the Bay
@@ -469,11 +487,9 @@ EOL
         log "snmpd.conf file created successfully at $SNMPD_CONF_FILE."
     fi
 
-    # Ensure proper ownership
     sudo chown root:root "$SNMPD_CONF_FILE"
     log "Ownership of $SNMPD_CONF_FILE set to root:root."
 
-    # Reload SNMPD service
     if sudo systemctl is-active --quiet snmpd && sudo systemctl reload snmpd; then
         log "SNMPD service reloaded successfully."
     else
@@ -488,24 +504,20 @@ EOL
 install_docker_repository() {
     log "Installing Docker repository."
 
-    # Update apt, install prerequisites
-    sudo apt update
-    sudo apt install -y ca-certificates curl
+    sudo apt-get update
+    sudo apt-get install -y ca-certificates curl
 
-    # Create keyrings directory if needed
     sudo install -m 0755 -d /etc/apt/keyrings
 
-    # Add Docker's GPG key
     sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
     sudo chmod a+r /etc/apt/keyrings/docker.asc
 
-    # Add the Docker repository to Apt sources
     echo \
       "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
       $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
       sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-    sudo apt update
+    sudo apt-get update
 
     log "Docker repository installed successfully."
 }
@@ -516,10 +528,9 @@ install_docker_repository() {
 install_docker_ce() {
     log "Installing Docker CE and related tools."
 
-    # Install Docker CE and plugins
-    sudo apt install -y docker-ce docker-ce-cli containerd.io \
-                       docker-buildx-plugin docker-compose-plugin \
-                       docker-ce-rootless-extras
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io \
+                           docker-buildx-plugin docker-compose-plugin \
+                           docker-ce-rootless-extras
     sudo usermod -aG docker "$SUDO_USER"
 
     log "Docker CE and tools installed successfully. User added to group 'docker'."
@@ -534,11 +545,9 @@ clone_fastfetch_repository() {
     local REPO_URL="https://github.com/mews-se/update-fastfetch.git"
     local DEST_DIR="/home/$SUDO_USER/update-fastfetch"
 
-    # Check if the directory already exists
     if [ -d "$DEST_DIR" ]; then
         log "Repository already exists at $DEST_DIR. Skipping cloning."
     else
-        # Clone the repository
         if sudo -u "$SUDO_USER" git clone "$REPO_URL" "$DEST_DIR"; then
             log "Repository cloned successfully to $DEST_DIR."
         else
