@@ -390,21 +390,15 @@ create_bash_aliases() {
     log "Creating/updating .bash_aliases file."
 
     local BASH_ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
-    local TEMP_FILE="/home/$SUDO_USER/.bash_aliases_tmp"
 
-    # Colors
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    NC='\033[0m' # No Color
-
-    # Backup
+    # Backup .bash_aliases if it exists
     if [ -f "$BASH_ALIASES_FILE" ]; then
         sudo -u "$SUDO_USER" cp "$BASH_ALIASES_FILE" "${BASH_ALIASES_FILE}.bak_$(date +%F_%T)"
-        log "Backup of existing .bash_aliases created."
+        sudo -u "$SUDO_USER" rm "$BASH_ALIASES_FILE"
+        log "Removed existing .bash_aliases file (backup created)."
     fi
 
-    # Aliases from script
+    # List of aliases to be added (duplicate alias for 'prox' removed)
     local aliases_to_add
     aliases_to_add=$(cat <<'EOL'
 alias apta="sudo apt-get update && sudo apt-get dist-upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
@@ -429,54 +423,24 @@ alias mm="ssh martin@10.0.0.11"
 alias prox="ssh root@10.0.0.99"
 alias flight="ssh root@192.168.1.123"
 alias london="ssh dietpi@london.stockzell.se"
+alias nyc="ssh dietpi@nyc.stockzell.se"
 alias tb="ssh dietpi@10.0.0.97"
 alias brk2="ssh dietpi@10.0.1.7"
 alias teslamate="ssh dietpi@10.0.0.14"
 alias testpi="ssh dietpi@10.0.0.8"
-alias testpi5="ssh dietpi@10.0.0.17"
 alias ff="fastfetch -c all.jsonc"
 alias fa="fastfetch"
 alias barseback="ssh dietpi@barseback.karnkraft.org"
-alias wolnas="wakeonlan 90:09:d0:1f:95:b7"
+alias docker-clean=' \
+  docker container prune -f ; \
+  docker image prune -f ; \
+  docker network prune -f ; \
+  docker volume prune -f '
 EOL
 )
 
-    IFS=$'\n' read -rd '' -a script_alias_names <<< "$(echo "$aliases_to_add" | awk -F'[ =]' '/^alias / {print $2}')"
-
-    # Clear or create temp file
-    sudo -u "$SUDO_USER" bash -c ">$TEMP_FILE"
-
-    log "Checking for aliases not present in script for potential removal..."
-
-    if [ -f "$BASH_ALIASES_FILE" ]; then
-        while IFS= read -r line || [ -n "$line" ]; do
-            if [[ "$line" =~ ^alias[[:space:]]+([^=]+)= ]]; then
-                alias_name="${BASH_REMATCH[1]}"
-                if ! printf '%s\n' "${script_alias_names[@]}" | grep -qx "$alias_name"; then
-                    echo -ne "${YELLOW}Alias '$alias_name' is not in the script. Remove it? (y/N): ${NC}" > /dev/tty
-                    read resp < /dev/tty
-                    if [[ "$resp" =~ ^[Yy]$ ]]; then
-                        echo -e "${RED}Removed alias '$alias_name'${NC}" > /dev/tty
-                        continue
-                    fi
-                fi
-            fi
-            echo "$line" >> "$TEMP_FILE"
-        done < "$BASH_ALIASES_FILE"
-    fi
-
-    # Add missing aliases
-    while IFS= read -r line; do
-        alias_name=$(echo "$line" | awk '{print $2}' | cut -d= -f1)
-        if ! grep -q "^alias $alias_name=" "$TEMP_FILE"; then
-            echo "$line" >> "$TEMP_FILE"
-            echo -e "${GREEN}Added alias '$alias_name'${NC}"
-        fi
-    done <<< "$aliases_to_add"
-
-    # Move the new file to .bash_aliases
-    sudo -u "$SUDO_USER" cp "$TEMP_FILE" "$BASH_ALIASES_FILE"
-    sudo -u "$SUDO_USER" rm "$TEMP_FILE"
+    # Create/append the .bash_aliases file
+    echo "$aliases_to_add" | sudo -u "$SUDO_USER" tee "$BASH_ALIASES_FILE" > /dev/null
 
     log ".bash_aliases file created/updated successfully for user: $SUDO_USER."
 }
