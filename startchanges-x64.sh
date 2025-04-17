@@ -389,22 +389,24 @@ EOL
 create_bash_aliases() {
     log "Creating/updating .bash_aliases file."
 
-    local BASH_ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
-    local TEMP_FILE="/home/$SUDO_USER/.bash_aliases_tmp"
+    # Explicitly set the user's home directory
+    local USER_HOME_DIR="/home/$SUDO_USER"
+    local BASH_ALIASES_FILE="$USER_HOME_DIR/.bash_aliases"
+    local TEMP_FILE="$USER_HOME_DIR/.bash_aliases_tmp"
 
-    # Colors
+    # Colors for output
     RED='\033[0;31m'
     GREEN='\033[0;32m'
     YELLOW='\033[1;33m'
     NC='\033[0m' # No Color
 
-    # Backup
+    # Backup the existing .bash_aliases
     if [ -f "$BASH_ALIASES_FILE" ]; then
         sudo -u "$SUDO_USER" cp "$BASH_ALIASES_FILE" "${BASH_ALIASES_FILE}.bak_$(date +%F_%T)"
         log "Backup of existing .bash_aliases created."
     fi
 
-    # Aliases from script
+    # Aliases to be added (adjust as necessary)
     local aliases_to_add
     aliases_to_add=$(cat <<'EOL'
 alias apta="sudo apt-get update && sudo apt-get dist-upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
@@ -420,7 +422,7 @@ alias fanoff="sudo systemctl stop fancontrol.service"
 alias fanon="sudo systemctl start fancontrol.service"
 alias kodipi="ssh dietpi@10.0.0.7"
 alias dellpi="ssh dietpi@10.0.0.6"
-alias brkpi="ssh dietpi@10.0.1.8"
+alias brkpi="ssh dietpi@10.0.1.13"
 alias optiplex="ssh mews@192.168.1.6"
 alias pfsensebrk="ssh -p 2221 admin@192.168.1.1"
 alias pfsense="ssh -p 2221 admin@10.0.0.1"
