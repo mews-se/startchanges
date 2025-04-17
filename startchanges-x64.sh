@@ -399,7 +399,7 @@ create_bash_aliases() {
         log "Backup of existing .bash_aliases created."
     fi
 
-    # List of aliases to be added
+    # Aliases to add
     local aliases_to_add
     aliases_to_add=$(cat <<'EOL'
 alias apta="sudo apt-get update && sudo apt-get dist-upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
@@ -432,39 +432,38 @@ alias ff="fastfetch -c all.jsonc"
 alias fa="fastfetch"
 alias barseback="ssh dietpi@barseback.karnkraft.org"
 alias wolnas="wakeonlan 90:09:d0:1f:95:b7"
-alias docker-clean=' \
-  docker container prune -f ; \
-  docker image prune -f ; \
-  docker network prune -f ; \
-  docker volume prune -f '
 EOL
 )
 
-    # Create list of alias names from the script
+    # Extract alias names from the script
     local script_alias_names
     script_alias_names=$(echo "$aliases_to_add" | awk '{print $2}' | cut -d= -f1)
 
-    # Read existing aliases and allow interactive cleanup
+    # Interactive removal of non-script aliases
     if [ -f "$BASH_ALIASES_FILE" ]; then
-        while IFS= read -r line; do
-            if [[ $line == alias\ * ]]; then
-                local existing_alias
-                existing_alias=$(echo "$line" | awk '{print $2}' | cut -d= -f1)
+        log "Checking for aliases not present in script for potential removal..."
 
-                if ! grep -q "^$existing_alias\$" <<< "$script_alias_names"; then
-                    echo -n "Alias '$existing_alias' is not in the script. Remove it? (y/N): "
-                    read -r response
-                    if [[ "$response" =~ ^[Yy]$ ]]; then
-                        log "Alias '$existing_alias' removed."
-                        continue
+        sudo -u "$SUDO_USER" bash -c "
+            TEMP_FILE='$TEMP_FILE'
+            SCRIPT_ALIASES=\"$script_alias_names\"
+
+            while IFS= read -r line; do
+                if [[ \$line == alias\ * ]]; then
+                    existing_alias=\$(echo \"\$line\" | awk '{print \$2}' | cut -d= -f1)
+                    if ! grep -q \"^\$existing_alias\$\" <<< \"\$SCRIPT_ALIASES\"; then
+                        read -p \"Alias '\$existing_alias' is not in the script. Remove it? (y/N): \" resp
+                        if [[ \"\$resp\" =~ ^[Yy]\$ ]]; then
+                            echo \"Removed alias '\$existing_alias'\"
+                            continue
+                        fi
                     fi
                 fi
-            fi
-            echo "$line" >> "$TEMP_FILE"
-        done < "$BASH_ALIASES_FILE"
+                echo \"\$line\" >> \"\$TEMP_FILE\"
+            done < \"$BASH_ALIASES_FILE\"
+        "
     fi
 
-    # Add aliases from script if they don’t exist already
+    # Add missing aliases from the script
     while IFS= read -r line; do
         local alias_name
         alias_name=$(echo "$line" | awk '{print $2}' | cut -d= -f1)
@@ -473,7 +472,7 @@ EOL
         fi
     done <<< "$aliases_to_add"
 
-    # Move final file into place
+    # Replace final file
     sudo -u "$SUDO_USER" cp "$TEMP_FILE" "$BASH_ALIASES_FILE"
     sudo -u "$SUDO_USER" rm "$TEMP_FILE"
 
