@@ -451,7 +451,6 @@ EOL
         fi
     done <<< "$NEW_ALIASES"
 
-    # Track if we found any custom aliases
     local found_custom=false
 
     # Process existing .bash_aliases
@@ -460,22 +459,18 @@ EOL
             if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+([^=]+)= ]]; then
                 alias_name="${BASH_REMATCH[1]}"
                 existing_line="$line"
-                # Check if the alias is not in new list
                 if [[ -z "${new_aliases[$alias_name]+exists}" ]]; then
                     found_custom=true
                     echo -e "\n${YELLOW}Found alias not in script: ${CYAN}$alias_name${NC}"
                     echo -e "  ${CYAN}$existing_line${NC}"
-                    echo -ne "${YELLOW}Keep this alias? [y/N]: ${NC}" > /dev/tty
+                    echo -ne "${YELLOW}Keep this alias? [Y/n]: ${NC}" > /dev/tty
                     read -r response < /dev/tty
-                    if [[ "$response" =~ ^[Yy]$ ]]; then
+                    if [[ -z "$response" || "$response" =~ ^[Yy]$ ]]; then
                         final_aliases["$alias_name"]="$existing_line"
                         echo -e "${GREEN}→ Keeping: $alias_name${NC}"
                     else
                         echo -e "${RED}→ Removed: $alias_name${NC}"
                     fi
-                else
-                    # Skipped since it will be replaced
-                    :
                 fi
             else
                 echo "$line" >> "$TEMP_FILE"
@@ -487,17 +482,17 @@ EOL
         log "No custom aliases found for review."
     fi
 
-    # Add new aliases to final
+    # Add new aliases
     for alias in "${!new_aliases[@]}"; do
         final_aliases["$alias"]="${new_aliases[$alias]}"
     done
 
-    # Write final aliases to file
-    for alias in "${!final_aliases[@]}"; do
-        echo "${final_aliases[$alias]}" >> "$TEMP_FILE"
+    # Write merged file
+    for alias_line in "${final_aliases[@]}"; do
+        echo "$alias_line" >> "$TEMP_FILE"
     done
 
-    # Move to real file
+    # Save and cleanup
     sudo mv "$TEMP_FILE" "$ALIASES_FILE"
     sudo chown "$SUDO_USER:$SUDO_USER" "$ALIASES_FILE"
     log ".bash_aliases updated successfully with interactive selections."
