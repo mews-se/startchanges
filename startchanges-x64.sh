@@ -512,6 +512,9 @@ EOL
         echo -e "${YELLOW}  → Kept custom aliases  : $kept_count${NC}"
         echo -e "${RED}  → Removed aliases      : $removed_count${NC}"
     } > /dev/tty
+
+    # ⏸ Pause before returning to main menu
+    read -rp "Press Enter to return to menu..." < /dev/tty
 }
 
 ###############################################################################
