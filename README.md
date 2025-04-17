@@ -2,18 +2,29 @@
 
 ## Disclaimer
 
-This script is authored and maintained for personal use by the author. Users are encouraged to review the code and understand its operations before executing any commands. It is advisable to test the script in a controlled, non-production environment to evaluate its impact and functionality specific to your system configuration.
+This script is authored and maintained for personal use by the author. Users are encouraged to review the code and understand its operations before executing any commands. It is strongly recommended to test the script in a controlled, non-production environment to evaluate its impact and functionality specific to your system configuration.
 
 The author assumes no responsibility for any unintended consequences, including but not limited to data loss, system downtime, or security breaches, resulting from the use of this script. By executing the script, users acknowledge and accept these risks.
 
 For critical systems or environments with unique configurations, consider adapting the script to suit specific requirements and conducting thorough testing prior to deployment.
+
+## Features
+
+- Interactive menu for common setup and configuration tasks
+- Smart `.bash_aliases` management:
+  - Adds predefined aliases automatically
+  - Prompts to keep or remove existing custom aliases
+  - Sorts final alias list alphabetically
+- Backup of `.bash_aliases` before modification
+- Safe, user-specific file handling with correct permissions
 
 ## Usage
 
 1. Clone the repository or download the script.
 2. Make sure to run the script with appropriate permissions (`sudo`).
 3. Review the menu options and select the desired tasks to automate system configuration.
-4. Follow any on-screen instructions for manual steps like sourcing `.bashrc` and `.bash_aliases`.
+4. Follow on-screen prompts to review and manage existing shell aliases.
+5. After changes, remember to source your updated `.bashrc` or `.bash_aliases` if needed (`source ~/.bashrc`).
 
 ## Support
 
