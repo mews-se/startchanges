@@ -393,11 +393,10 @@ create_bash_aliases() {
     local TEMP_FILE
     TEMP_FILE=$(sudo -u "$SUDO_USER" mktemp "/home/$SUDO_USER/.bash_aliases_tmp.XXXXXX")
 
-    # Backup .bash_aliases if it exists
+    # Backup existing file
     if [ -f "$BASH_ALIASES_FILE" ]; then
         sudo -u "$SUDO_USER" cp "$BASH_ALIASES_FILE" "${BASH_ALIASES_FILE}.bak_$(date +%F_%T)"
         log "Backup of existing .bash_aliases created."
-        sudo -u "$SUDO_USER" cat "$BASH_ALIASES_FILE" > "$TEMP_FILE"
     fi
 
     # List of aliases to be added
@@ -441,16 +440,40 @@ alias docker-clean=' \
 EOL
 )
 
-    # Loop through each alias and append only if missing
+    # Create list of alias names from the script
+    local script_alias_names
+    script_alias_names=$(echo "$aliases_to_add" | awk '{print $2}' | cut -d= -f1)
+
+    # Read existing aliases and allow interactive cleanup
+    if [ -f "$BASH_ALIASES_FILE" ]; then
+        while IFS= read -r line; do
+            if [[ $line == alias\ * ]]; then
+                local existing_alias
+                existing_alias=$(echo "$line" | awk '{print $2}' | cut -d= -f1)
+
+                if ! grep -q "^$existing_alias\$" <<< "$script_alias_names"; then
+                    echo -n "Alias '$existing_alias' is not in the script. Remove it? (y/N): "
+                    read -r response
+                    if [[ "$response" =~ ^[Yy]$ ]]; then
+                        log "Alias '$existing_alias' removed."
+                        continue
+                    fi
+                fi
+            fi
+            echo "$line" >> "$TEMP_FILE"
+        done < "$BASH_ALIASES_FILE"
+    fi
+
+    # Add aliases from script if they don’t exist already
     while IFS= read -r line; do
         local alias_name
         alias_name=$(echo "$line" | awk '{print $2}' | cut -d= -f1)
-        if ! sudo -u "$SUDO_USER" grep -q "^alias $alias_name=" "$TEMP_FILE"; then
+        if ! grep -q "^alias $alias_name=" "$TEMP_FILE"; then
             echo "$line" | sudo -u "$SUDO_USER" tee -a "$TEMP_FILE" > /dev/null
         fi
     done <<< "$aliases_to_add"
 
-    # Move the new file to .bash_aliases
+    # Move final file into place
     sudo -u "$SUDO_USER" cp "$TEMP_FILE" "$BASH_ALIASES_FILE"
     sudo -u "$SUDO_USER" rm "$TEMP_FILE"
 
