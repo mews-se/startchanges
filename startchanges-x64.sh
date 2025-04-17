@@ -397,7 +397,6 @@ create_bash_aliases() {
     if [ -f "$BASH_ALIASES_FILE" ]; then
         sudo -u "$SUDO_USER" cp "$BASH_ALIASES_FILE" "${BASH_ALIASES_FILE}.bak_$(date +%F_%T)"
         log "Backup of existing .bash_aliases created."
-        sudo -u "$SUDO_USER" cat "$BASH_ALIASES_FILE" > "$TEMP_FILE"
     fi
 
     # List of aliases to be added
@@ -424,8 +423,6 @@ alias pfsensebrk2="ssh -p 2221 admin@10.0.1.1"
 alias mm="ssh martin@10.0.0.11"
 alias prox="ssh root@10.0.0.99"
 alias flight="ssh root@192.168.1.123"
-alias london="ssh dietpi@london.stockzell.se"
-alias nyc="ssh dietpi@nyc.stockzell.se"
 alias tb="ssh dietpi@10.0.0.97"
 alias brk2="ssh dietpi@10.0.1.7"
 alias teslamate="ssh dietpi@10.0.0.14"
