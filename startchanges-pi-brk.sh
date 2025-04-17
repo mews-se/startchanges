@@ -373,62 +373,121 @@ EOL
 # FUNCTION: create_bash_aliases
 ###############################################################################
 create_bash_aliases() {
-    log "Creating/updating .bash_aliases file."
+    log "Creating/updating .bash_aliases file with interactive review."
 
-    local BASH_ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
+    local USER_HOME="/home/$SUDO_USER"
+    local ALIASES_FILE="$USER_HOME/.bash_aliases"
+    local BACKUP_FILE="$ALIASES_FILE.bak_$(date +%F_%T)"
+    local TEMP_FILE
+    TEMP_FILE=$(sudo -u "$SUDO_USER" mktemp "$USER_HOME/.bash_aliases.tmp.XXXXXX")
 
-    # Backup existing .bash_aliases if it exists
-    if [ -f "$BASH_ALIASES_FILE" ]; then
-        sudo -u "$SUDO_USER" cp "$BASH_ALIASES_FILE" "${BASH_ALIASES_FILE}.bak_$(date +%F_%T)"
-        sudo -u "$SUDO_USER" rm "$BASH_ALIASES_FILE"
-        log "Removed existing .bash_aliases file (backup created)."
+    # Terminal color codes
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    CYAN='\033[0;36m'
+    NC='\033[0m'
+
+    # Backup current file
+    if [ -f "$ALIASES_FILE" ]; then
+        sudo -u "$SUDO_USER" cp "$ALIASES_FILE" "$BACKUP_FILE"
+        log "Backup created at $BACKUP_FILE"
     fi
 
-    # List of aliases to be added (duplicate alias 'prox' removed and apt commands standardized)
-    local aliases_to_add=$(cat <<'EOL'
+    # Script-defined aliases
+    local NEW_ALIASES=$(cat <<'EOL'
 alias apta="sudo apt-get update && sudo apt-get dist-upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
-alias sen="watch -n 1 sensors"
-alias reb="sudo reboot"
-alias dcupd="docker compose up -d"
-alias dcupdlog="docker compose up -d && docker compose logs -f"
+alias barseback="ssh dietpi@barseback.karnkraft.org"
+alias brk2="ssh dietpi@10.0.1.7"
+alias brkpi="ssh dietpi@10.0.1.13"
+alias dcdown="docker compose down"
 alias dclog="docker compose logs -f"
 alias dcpull="docker compose pull"
 alias dcstop="docker compose stop"
-alias dcdown="docker compose down"
+alias dcupd="docker compose up -d"
+alias dcupdlog="docker compose up -d && docker compose logs -f"
+alias dellpi="ssh dietpi@10.0.0.6"
+alias fa="fastfetch"
 alias fanoff="sudo systemctl stop fancontrol.service"
 alias fanon="sudo systemctl start fancontrol.service"
-alias kodipi="ssh dietpi@10.0.0.7"
-alias dellpi="ssh dietpi@10.0.0.6"
-alias brkpi="ssh dietpi@10.0.1.8"
-alias optiplex="ssh mews@192.168.1.6"
-alias pfsensebrk="ssh -p 2221 admin@192.168.1.1"
-alias pfsense="ssh -p 2221 admin@10.0.0.1"
-alias pfsensebrk2="ssh -p 2221 admin@10.0.1.1"
-alias mm="ssh martin@10.0.0.11"
-alias prox="ssh root@10.0.0.99"
+alias ff="fastfetch -c all.jsonc"
 alias flight="ssh root@192.168.1.123"
+alias kodipi="ssh dietpi@10.0.0.7"
 alias london="ssh dietpi@london.stockzell.se"
-alias nyc="ssh dietpi@nyc.stockzell.se"
+alias mm="ssh martin@10.0.0.11"
+alias optiplex="ssh mews@192.168.1.6"
+alias pfsense="ssh -p 2221 admin@10.0.0.1"
+alias pfsensebrk="ssh -p 2221 admin@192.168.1.1"
+alias pfsensebrk2="ssh -p 2221 admin@10.0.1.1"
+alias prox="ssh root@10.0.0.99"
+alias reb="sudo reboot"
+alias sen="watch -n 1 sensors"
 alias tb="ssh dietpi@10.0.0.97"
-alias brk2="ssh dietpi@10.0.1.7"
 alias teslamate="ssh dietpi@10.0.0.14"
 alias testpi="ssh dietpi@10.0.0.8"
 alias testpi5="ssh dietpi@10.0.0.17"
-alias ff="fastfetch -c all.jsonc"
-alias fa="fastfetch"
-alias barseback="ssh dietpi@barseback.karnkraft.org"
 alias wolnas="wakeonlan 90:09:d0:1f:95:b7"
-alias docker-clean=' \
-  docker container prune -f ; \
-  docker image prune -f ; \
-  docker network prune -f ; \
-  docker volume prune -f '
 EOL
 )
 
-    echo "$aliases_to_add" | sudo -u "$SUDO_USER" tee "$BASH_ALIASES_FILE" > /dev/null
+    declare -A new_aliases
+    declare -A final_aliases
 
-    log ".bash_aliases file created/updated successfully for user: $SUDO_USER."
+    # Parse new aliases into map
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+([^=]+)= ]]; then
+            name="${BASH_REMATCH[1]}"
+            new_aliases["$name"]="$line"
+        fi
+    done <<< "$NEW_ALIASES"
+
+    local found_custom=false
+
+    # Check existing aliases
+    if [ -f "$ALIASES_FILE" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+([^=]+)= ]]; then
+                alias_name="${BASH_REMATCH[1]}"
+                existing_line="$line"
+                if [[ -z "${new_aliases[$alias_name]+exists}" ]]; then
+                    found_custom=true
+                    echo -e "\n${YELLOW}Found alias not in script: ${CYAN}$alias_name${NC}"
+                    echo -e "  ${CYAN}$existing_line${NC}"
+                    echo -ne "${YELLOW}Keep this alias? [Y/n]: ${NC}" > /dev/tty
+                    read -r response < /dev/tty
+                    # Flush stdin buffer to prevent menu from skipping
+                    read -t 0.1 -n 10000 discard < /dev/tty 2>/dev/null || true
+                    if [[ -z "$response" || "$response" =~ ^[Yy]$ ]]; then
+                        final_aliases["$alias_name"]="$existing_line"
+                        echo -e "${GREEN}→ Keeping: $alias_name${NC}"
+                    else
+                        echo -e "${RED}→ Removed: $alias_name${NC}"
+                    fi
+                fi
+            else
+                echo "$line" >> "$TEMP_FILE"
+            fi
+        done < "$ALIASES_FILE"
+    fi
+
+    if [ "$found_custom" = false ]; then
+        log "No custom aliases found for review."
+    fi
+
+    # Add script-defined aliases (overwrites duplicates)
+    for alias in "${!new_aliases[@]}"; do
+        final_aliases["$alias"]="${new_aliases[$alias]}"
+    done
+
+    # Sort and write merged alias lines
+    for alias_line in "${final_aliases[@]}"; do
+        echo "$alias_line"
+    done | sort >> "$TEMP_FILE"
+
+    # Finalize
+    sudo mv "$TEMP_FILE" "$ALIASES_FILE"
+    sudo chown "$SUDO_USER:$SUDO_USER" "$ALIASES_FILE"
+    log ".bash_aliases updated successfully with interactive selections and sorted output."
 }
 
 ###############################################################################
