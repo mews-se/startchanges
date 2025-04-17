@@ -402,6 +402,11 @@ create_bash_aliases() {
     CYAN='\033[0;36m'
     NC='\033[0m'
 
+    # Track stats
+    added_count=0
+    kept_count=0
+    removed_count=0
+
     # Backup current file
     if [ -f "$ALIASES_FILE" ]; then
         sudo -u "$SUDO_USER" cp "$ALIASES_FILE" "$BACKUP_FILE"
@@ -467,8 +472,10 @@ EOL
                     read -r response < /dev/tty
                     if [[ -z "$response" || "$response" =~ ^[Yy]$ ]]; then
                         final_aliases["$alias_name"]="$existing_line"
+                        ((kept_count++))
                         echo -e "${GREEN}→ Keeping: $alias_name${NC}"
                     else
+                        ((removed_count++))
                         echo -e "${RED}→ Removed: $alias_name${NC}"
                     fi
                 fi
@@ -485,9 +492,10 @@ EOL
     # Add script-defined aliases (overwrites duplicates)
     for alias in "${!new_aliases[@]}"; do
         final_aliases["$alias"]="${new_aliases[$alias]}"
+        ((added_count++))
     done
 
-    # ✅ Sort and write merged alias lines
+    # Sort and write merged alias lines
     for alias_line in "${final_aliases[@]}"; do
         echo "$alias_line"
     done | sort >> "$TEMP_FILE"
@@ -496,6 +504,12 @@ EOL
     sudo mv "$TEMP_FILE" "$ALIASES_FILE"
     sudo chown "$SUDO_USER:$SUDO_USER" "$ALIASES_FILE"
     log ".bash_aliases updated successfully with interactive selections and sorted output."
+
+    # ✅ Summary
+    echo -e "\n${CYAN}Alias Update Summary:${NC}"
+    echo -e "${GREEN}  → Added script aliases : $added_count${NC}"
+    echo -e "${YELLOW}  → Kept custom aliases  : $kept_count${NC}"
+    echo -e "${RED}  → Removed aliases      : $removed_count${NC}"
 }
 
 ###############################################################################
