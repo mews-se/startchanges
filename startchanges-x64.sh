@@ -389,7 +389,10 @@ EOL
 create_bash_aliases() {
     log "Creating/updating .bash_aliases file."
 
-    # Explicitly set the user's home directory
+    # Log the user who invoked sudo
+    log "SUDO_USER: $SUDO_USER"
+
+    # Explicitly set the user's home directory (in case it's not set)
     local USER_HOME_DIR="/home/$SUDO_USER"
     local BASH_ALIASES_FILE="$USER_HOME_DIR/.bash_aliases"
     local TEMP_FILE="$USER_HOME_DIR/.bash_aliases_tmp"
