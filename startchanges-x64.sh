@@ -429,11 +429,7 @@ alias mm="ssh martin@10.0.0.11"
 alias prox="ssh root@10.0.0.99"
 alias flight="ssh root@192.168.1.123"
 alias london="ssh dietpi@london.stockzell.se"
-alias tb="ssh dietpi@10.0.0.97"
-alias brk2="ssh dietpi@10.0.1.7"
-alias teslamate="ssh dietpi@10.0.0.14"
 alias testpi="ssh dietpi@10.0.0.8"
-alias testpi5="ssh dietpi@10.0.0.17"
 alias ff="fastfetch -c all.jsonc"
 alias fa="fastfetch"
 alias barseback="ssh dietpi@barseback.karnkraft.org"
@@ -451,14 +447,15 @@ EOL
 
     if [ -f "$BASH_ALIASES_FILE" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
+            # Extract alias name from each line
             if [[ "$line" =~ ^alias[[:space:]]+([^=]+)= ]]; then
                 alias_name="${BASH_REMATCH[1]}"
                 echo -e "${YELLOW}Found alias: $alias_name${NC}"
 
-                # Check if alias is in the script
+                # Check if alias is in the script's predefined list
                 if ! printf '%s\n' "${script_alias_names[@]}" | grep -qx "$alias_name"; then
-                    echo -ne "${YELLOW}Alias '$alias_name' is not in the script. Remove it? (y/N): ${NC}" > /dev/tty
-                    read resp < /dev/tty
+                    echo -e "${YELLOW}Alias '$alias_name' is not in the script. Would you like to remove it? (y/N): ${NC}" > /dev/tty
+                    read -r resp < /dev/tty
                     if [[ "$resp" =~ ^[Yy]$ ]]; then
                         echo -e "${RED}Removing alias '$alias_name'${NC}" > /dev/tty
                         continue
