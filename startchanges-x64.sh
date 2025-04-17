@@ -397,6 +397,7 @@ create_bash_aliases() {
     if [ -f "$BASH_ALIASES_FILE" ]; then
         sudo -u "$SUDO_USER" cp "$BASH_ALIASES_FILE" "${BASH_ALIASES_FILE}.bak_$(date +%F_%T)"
         log "Backup of existing .bash_aliases created."
+        sudo -u "$SUDO_USER" cat "$BASH_ALIASES_FILE" > "$TEMP_FILE"
     fi
 
     # List of aliases to be added
@@ -440,23 +441,18 @@ alias docker-clean=' \
 EOL
 )
 
-    # Write original content to temp file, if exists
-    if [ -f "$BASH_ALIASES_FILE" ]; then
-        sudo -u "$SUDO_USER" cat "$BASH_ALIASES_FILE" > "$TEMP_FILE"
-    fi
-
-    # Loop through each alias to add it only if it doesn't already exist
+    # Loop through each alias and append only if missing — done fully as $SUDO_USER
     while IFS= read -r line; do
         local alias_name
         alias_name=$(echo "$line" | awk '{print $2}' | cut -d= -f1)
-        if ! grep -q "^alias $alias_name=" "$TEMP_FILE"; then
-            echo "$line" >> "$TEMP_FILE"
+        if ! sudo -u "$SUDO_USER" grep -q "^alias $alias_name=" "$TEMP_FILE"; then
+            echo "$line" | sudo -u "$SUDO_USER" tee -a "$TEMP_FILE" > /dev/null
         fi
     done <<< "$aliases_to_add"
 
-    # Write the final file
+    # Final copy and cleanup
     sudo -u "$SUDO_USER" cp "$TEMP_FILE" "$BASH_ALIASES_FILE"
-    rm "$TEMP_FILE"
+    sudo -u "$SUDO_USER" rm "$TEMP_FILE"
 
     log ".bash_aliases file created/updated successfully for user: $SUDO_USER."
 }
