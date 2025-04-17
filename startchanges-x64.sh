@@ -399,7 +399,7 @@ create_bash_aliases() {
         log "Backup of existing .bash_aliases created."
     fi
 
-    # Aliases to add
+    # Script-defined aliases
     local aliases_to_add
     aliases_to_add=$(cat <<'EOL'
 alias apta="sudo apt-get update && sudo apt-get dist-upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
@@ -423,6 +423,7 @@ alias pfsensebrk2="ssh -p 2221 admin@10.0.1.1"
 alias mm="ssh martin@10.0.0.11"
 alias prox="ssh root@10.0.0.99"
 alias flight="ssh root@192.168.1.123"
+alias london="ssh dietpi@london.stockzell.se"
 alias tb="ssh dietpi@10.0.0.97"
 alias brk2="ssh dietpi@10.0.1.7"
 alias teslamate="ssh dietpi@10.0.0.14"
@@ -435,40 +436,33 @@ alias wolnas="wakeonlan 90:09:d0:1f:95:b7"
 EOL
 )
 
-    # Extract alias names from the script
-    local script_alias_names
-    script_alias_names=$(echo "$aliases_to_add" | awk '{print $2}' | cut -d= -f1)
+    # Extract script alias names into array
+    mapfile -t script_alias_names < <(echo "$aliases_to_add" | awk '{print $2}' | cut -d= -f1)
 
-    # Interactive removal of non-script aliases
+    log "Checking for aliases not present in script for potential removal..."
+
+    # Read current file line-by-line
     if [ -f "$BASH_ALIASES_FILE" ]; then
-        log "Checking for aliases not present in script for potential removal..."
-
-        sudo -u "$SUDO_USER" bash -c "
-            TEMP_FILE='$TEMP_FILE'
-            SCRIPT_ALIASES=\"$script_alias_names\"
-
-            while IFS= read -r line; do
-                if [[ \$line == alias\ * ]]; then
-                    existing_alias=\$(echo \"\$line\" | awk '{print \$2}' | cut -d= -f1)
-                    if ! grep -q \"^\$existing_alias\$\" <<< \"\$SCRIPT_ALIASES\"; then
-                        read -p \"Alias '\$existing_alias' is not in the script. Remove it? (y/N): \" resp
-                        if [[ \"\$resp\" =~ ^[Yy]\$ ]]; then
-                            echo \"Removed alias '\$existing_alias'\"
-                            continue
-                        fi
+        while IFS= read -r line || [ -n "$line" ]; do
+            if [[ "$line" =~ ^alias[[:space:]]+([^=]+)= ]]; then
+                alias_name="${BASH_REMATCH[1]}"
+                if ! printf '%s\n' "${script_alias_names[@]}" | grep -qx "$alias_name"; then
+                    read -p "Alias '$alias_name' is not in the script. Remove it? (y/N): " resp
+                    if [[ "$resp" =~ ^[Yy]$ ]]; then
+                        echo "Removed alias '$alias_name'"
+                        continue
                     fi
                 fi
-                echo \"\$line\" >> \"\$TEMP_FILE\"
-            done < \"$BASH_ALIASES_FILE\"
-        "
+            fi
+            echo "$line" >> "$TEMP_FILE"
+        done < "$BASH_ALIASES_FILE"
     fi
 
-    # Add missing aliases from the script
+    # Append missing aliases
     while IFS= read -r line; do
-        local alias_name
         alias_name=$(echo "$line" | awk '{print $2}' | cut -d= -f1)
         if ! grep -q "^alias $alias_name=" "$TEMP_FILE"; then
-            echo "$line" | sudo -u "$SUDO_USER" tee -a "$TEMP_FILE" > /dev/null
+            echo "$line" >> "$TEMP_FILE"
         fi
     done <<< "$aliases_to_add"
 
