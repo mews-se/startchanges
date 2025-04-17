@@ -400,9 +400,9 @@ create_bash_aliases() {
     GREEN='\033[0;32m'
     YELLOW='\033[1;33m'
     CYAN='\033[0;36m'
-    NC='\033[0m' # No color
+    NC='\033[0m'
 
-    # Backup existing file
+    # Backup current file
     if [ -f "$ALIASES_FILE" ]; then
         sudo -u "$SUDO_USER" cp "$ALIASES_FILE" "$BACKUP_FILE"
         log "Backup created at $BACKUP_FILE"
@@ -440,72 +440,67 @@ alias wolnas="wakeonlan 90:09:d0:1f:95:b7"
 EOL
 )
 
-    # Parse new alias names
-    IFS=$'\n' read -rd '' -a new_alias_names <<< "$(echo "$NEW_ALIASES" | awk -F'[ =]' '/^alias[[:space:]]/ {print $2}')"
+    declare -A new_aliases
+    declare -A final_aliases
 
-    declare -A merged_aliases
-    declare -A new_aliases_map
-
-    # Map new aliases for override
+    # Map new aliases
     while IFS= read -r line; do
         if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+([^=]+)= ]]; then
-            alias_name="${BASH_REMATCH[1]}"
-            new_aliases_map["$alias_name"]="$line"
+            name="${BASH_REMATCH[1]}"
+            new_aliases["$name"]="$line"
         fi
     done <<< "$NEW_ALIASES"
 
-    # Track whether anything was found
-    found_any=false
+    # Track if we found any custom aliases
+    local found_custom=false
 
-    # Process existing file if it exists
+    # Process existing .bash_aliases
     if [ -f "$ALIASES_FILE" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
             if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+([^=]+)= ]]; then
                 alias_name="${BASH_REMATCH[1]}"
-                found_any=true
-                # Check if this alias is overridden
-                if [[ -n "${new_aliases_map[$alias_name]:-}" ]]; then
-                    log "Alias '$alias_name' will be replaced with script-defined version."
-                    continue
-                fi
-                # Prompt for unmatched aliases
-                echo -e "\n${YELLOW}Found existing alias: $alias_name${NC}"
-                echo -e "${CYAN}  $line${NC}"
-                echo -ne "${YELLOW}Do you want to keep this alias? [y/N]: ${NC}" > /dev/tty
-                read -r ans < /dev/tty
-                if [[ "$ans" =~ ^[Yy]$ ]]; then
-                    merged_aliases["$alias_name"]="$line"
-                    echo -e "${GREEN}  → Keeping alias: $alias_name${NC}"
+                existing_line="$line"
+                # Check if the alias is not in new list
+                if [[ -z "${new_aliases[$alias_name]+exists}" ]]; then
+                    found_custom=true
+                    echo -e "\n${YELLOW}Found alias not in script: ${CYAN}$alias_name${NC}"
+                    echo -e "  ${CYAN}$existing_line${NC}"
+                    echo -ne "${YELLOW}Keep this alias? [y/N]: ${NC}" > /dev/tty
+                    read -r response < /dev/tty
+                    if [[ "$response" =~ ^[Yy]$ ]]; then
+                        final_aliases["$alias_name"]="$existing_line"
+                        echo -e "${GREEN}→ Keeping: $alias_name${NC}"
+                    else
+                        echo -e "${RED}→ Removed: $alias_name${NC}"
+                    fi
                 else
-                    echo -e "${RED}  → Removing alias: $alias_name${NC}"
+                    # Skipped since it will be replaced
+                    :
                 fi
             else
-                # Preserve comments and blank lines
                 echo "$line" >> "$TEMP_FILE"
             fi
         done < "$ALIASES_FILE"
     fi
 
-    if [ "$found_any" = false ]; then
-        log "No existing aliases found to review."
+    if [ "$found_custom" = false ]; then
+        log "No custom aliases found for review."
     fi
 
-    # Add all new aliases
-    for alias_name in "${!new_aliases_map[@]}"; do
-        merged_aliases["$alias_name"]="${new_aliases_map[$alias_name]}"
+    # Add new aliases to final
+    for alias in "${!new_aliases[@]}"; do
+        final_aliases["$alias"]="${new_aliases[$alias]}"
     done
 
-    # Write merged aliases to temp file
-    for alias_line in "${merged_aliases[@]}"; do
-        echo "$alias_line" >> "$TEMP_FILE"
+    # Write final aliases to file
+    for alias in "${!final_aliases[@]}"; do
+        echo "${final_aliases[$alias]}" >> "$TEMP_FILE"
     done
 
-    # Finalize
-    sudo -u "$SUDO_USER" cp "$TEMP_FILE" "$ALIASES_FILE"
+    # Move to real file
+    sudo mv "$TEMP_FILE" "$ALIASES_FILE"
     sudo chown "$SUDO_USER:$SUDO_USER" "$ALIASES_FILE"
-    sudo rm "$TEMP_FILE"
-
-    log ".bash_aliases file successfully updated with interactive merging and color output."
+    log ".bash_aliases updated successfully with interactive selections."
 }
 
 ###############################################################################
