@@ -466,17 +466,17 @@ EOL
                 existing_line="$line"
                 if [[ -z "${new_aliases[$alias_name]+exists}" ]]; then
                     found_custom=true
-                    echo -e "\n${YELLOW}Found alias not in script: ${CYAN}$alias_name${NC}"
-                    echo -e "  ${CYAN}$existing_line${NC}"
+                    echo -e "\n${YELLOW}Found alias not in script: ${CYAN}$alias_name${NC}" > /dev/tty
+                    echo -e "  ${CYAN}$existing_line${NC}" > /dev/tty
                     echo -ne "${YELLOW}Keep this alias? [Y/n]: ${NC}" > /dev/tty
                     read -r response < /dev/tty
                     if [[ -z "$response" || "$response" =~ ^[Yy]$ ]]; then
                         final_aliases["$alias_name"]="$existing_line"
                         ((kept_count++))
-                        echo -e "${GREEN}→ Keeping: $alias_name${NC}"
+                        echo -e "${GREEN}→ Keeping: $alias_name${NC}" > /dev/tty
                     else
                         ((removed_count++))
-                        echo -e "${RED}→ Removed: $alias_name${NC}"
+                        echo -e "${RED}→ Removed: $alias_name${NC}" > /dev/tty
                     fi
                 fi
             else
@@ -505,11 +505,13 @@ EOL
     sudo chown "$SUDO_USER:$SUDO_USER" "$ALIASES_FILE"
     log ".bash_aliases updated successfully with interactive selections and sorted output."
 
-    # ✅ Summary
-    echo -e "\n${CYAN}Alias Update Summary:${NC}"
-    echo -e "${GREEN}  → Added script aliases : $added_count${NC}"
-    echo -e "${YELLOW}  → Kept custom aliases  : $kept_count${NC}"
-    echo -e "${RED}  → Removed aliases      : $removed_count${NC}"
+    # ✅ Summary to terminal
+    {
+        echo -e "\n${CYAN}Alias Update Summary:${NC}"
+        echo -e "${GREEN}  → Added script aliases : $added_count${NC}"
+        echo -e "${YELLOW}  → Kept custom aliases  : $kept_count${NC}"
+        echo -e "${RED}  → Removed aliases      : $removed_count${NC}"
+    } > /dev/tty
 }
 
 ###############################################################################
