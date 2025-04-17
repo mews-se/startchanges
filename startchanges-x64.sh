@@ -390,15 +390,16 @@ create_bash_aliases() {
     log "Creating/updating .bash_aliases file."
 
     local BASH_ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
+    local TEMP_FILE
+    TEMP_FILE=$(mktemp)
 
     # Backup .bash_aliases if it exists
     if [ -f "$BASH_ALIASES_FILE" ]; then
         sudo -u "$SUDO_USER" cp "$BASH_ALIASES_FILE" "${BASH_ALIASES_FILE}.bak_$(date +%F_%T)"
-        sudo -u "$SUDO_USER" rm "$BASH_ALIASES_FILE"
-        log "Removed existing .bash_aliases file (backup created)."
+        log "Backup of existing .bash_aliases created."
     fi
 
-    # List of aliases to be added (duplicate alias for 'prox' removed)
+    # List of aliases to be added
     local aliases_to_add
     aliases_to_add=$(cat <<'EOL'
 alias apta="sudo apt-get update && sudo apt-get dist-upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
@@ -441,8 +442,23 @@ alias docker-clean=' \
 EOL
 )
 
-    # Create/append the .bash_aliases file
-    echo "$aliases_to_add" | sudo -u "$SUDO_USER" tee "$BASH_ALIASES_FILE" > /dev/null
+    # Write original content to temp file, if exists
+    if [ -f "$BASH_ALIASES_FILE" ]; then
+        sudo -u "$SUDO_USER" cat "$BASH_ALIASES_FILE" > "$TEMP_FILE"
+    fi
+
+    # Loop through each alias to add it only if it doesn't already exist
+    while IFS= read -r line; do
+        local alias_name
+        alias_name=$(echo "$line" | awk '{print $2}' | cut -d= -f1)
+        if ! grep -q "^alias $alias_name=" "$TEMP_FILE"; then
+            echo "$line" >> "$TEMP_FILE"
+        fi
+    done <<< "$aliases_to_add"
+
+    # Write the final file
+    sudo -u "$SUDO_USER" cp "$TEMP_FILE" "$BASH_ALIASES_FILE"
+    rm "$TEMP_FILE"
 
     log ".bash_aliases file created/updated successfully for user: $SUDO_USER."
 }
