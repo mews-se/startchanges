@@ -435,7 +435,10 @@ alias pfsensebrk2="ssh -p 2221 admin@10.0.1.1"
 alias prox="ssh root@10.0.0.99"
 alias reb="sudo reboot"
 alias sen="watch -n 1 sensors"
+alias tb="ssh dietpi@10.0.0.97"
+alias teslamate="ssh dietpi@10.0.0.14"
 alias testpi="ssh dietpi@10.0.0.8"
+alias testpi5="ssh dietpi@10.0.0.17"
 alias wolnas="wakeonlan 90:09:d0:1f:95:b7"
 EOL
 )
