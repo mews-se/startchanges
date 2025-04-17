@@ -387,31 +387,22 @@ EOL
 # FUNCTION: create_bash_aliases
 ###############################################################################
 create_bash_aliases() {
-    log "Creating/updating .bash_aliases file."
+    log "Creating/updating .bash_aliases file interactively."
 
-    # Log the user who invoked sudo
-    log "SUDO_USER: $SUDO_USER"
+    local USER_HOME="/home/$SUDO_USER"
+    local ALIASES_FILE="$USER_HOME/.bash_aliases"
+    local BACKUP_FILE="$ALIASES_FILE.bak_$(date +%F_%T)"
+    local TEMP_FILE
+    TEMP_FILE=$(sudo -u "$SUDO_USER" mktemp "$USER_HOME/.bash_aliases.tmp.XXXXXX")
 
-    # Explicitly set the user's home directory (in case it's not set)
-    local USER_HOME_DIR="/home/$SUDO_USER"
-    local BASH_ALIASES_FILE="$USER_HOME_DIR/.bash_aliases"
-    local TEMP_FILE="$USER_HOME_DIR/.bash_aliases_tmp"
-
-    # Colors for output
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    NC='\033[0m' # No Color
-
-    # Backup the existing .bash_aliases
-    if [ -f "$BASH_ALIASES_FILE" ]; then
-        sudo -u "$SUDO_USER" cp "$BASH_ALIASES_FILE" "${BASH_ALIASES_FILE}.bak_$(date +%F_%T)"
-        log "Backup of existing .bash_aliases created."
+    # Backup the existing file
+    if [ -f "$ALIASES_FILE" ]; then
+        sudo -u "$SUDO_USER" cp "$ALIASES_FILE" "$BACKUP_FILE"
+        log "Backup created at $BACKUP_FILE"
     fi
 
-    # Aliases to be added (adjust as necessary)
-    local aliases_to_add
-    aliases_to_add=$(cat <<'EOL'
+    # Define new aliases to add
+    local NEW_ALIASES=$(cat <<'EOL'
 alias apta="sudo apt-get update && sudo apt-get dist-upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
 alias sen="watch -n 1 sensors"
 alias reb="sudo reboot"
@@ -442,49 +433,57 @@ alias wolnas="wakeonlan 90:09:d0:1f:95:b7"
 EOL
 )
 
-    # List of aliases to add
-    IFS=$'\n' read -rd '' -a script_alias_names <<< "$(echo "$aliases_to_add" | awk -F'[ =]' '/^alias / {print $2}')"
+    # Parse new alias names
+    IFS=$'\n' read -rd '' -a new_alias_names <<< "$(echo "$NEW_ALIASES" | awk -F'[ =]' '/^alias / {print $2}')"
 
-    # Clear or create temp file
-    sudo -u "$SUDO_USER" bash -c ">$TEMP_FILE"
+    declare -A merged_aliases
 
-    log "Checking for aliases not present in script for potential removal..."
-
-    if [ -f "$BASH_ALIASES_FILE" ]; then
+    # First, collect current aliases (if any)
+    if [ -f "$ALIASES_FILE" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
-            # Extract alias name from each line
             if [[ "$line" =~ ^alias[[:space:]]+([^=]+)= ]]; then
                 alias_name="${BASH_REMATCH[1]}"
-                echo -e "${YELLOW}Found alias: $alias_name${NC}"
-
-                # Check if alias is in the script's predefined list
-                if ! printf '%s\n' "${script_alias_names[@]}" | grep -qx "$alias_name"; then
-                    echo -e "${YELLOW}Alias '$alias_name' is not in the script. Would you like to remove it? (y/N): ${NC}" > /dev/tty
-                    read -r resp < /dev/tty
-                    if [[ "$resp" =~ ^[Yy]$ ]]; then
-                        echo -e "${RED}Removing alias '$alias_name'${NC}" > /dev/tty
-                        continue
+                # If not part of the new set, prompt user to keep or discard
+                if ! printf '%s\n' "${new_alias_names[@]}" | grep -qx "$alias_name"; then
+                    echo "Found existing alias: $alias_name"
+                    echo "  $line"
+                    echo -n "Do you want to keep this alias? [y/N]: " > /dev/tty
+                    read -r ans < /dev/tty
+                    if [[ "$ans" =~ ^[Yy]$ ]]; then
+                        merged_aliases["$alias_name"]="$line"
+                        log "Keeping alias: $alias_name"
+                    else
+                        log "Removing alias: $alias_name"
                     fi
+                else
+                    # It's overridden by new ones — skip
+                    :
                 fi
+            else
+                # Not an alias line, keep as-is (comment, blank, etc.)
+                echo "$line" >> "$TEMP_FILE"
             fi
-            echo "$line" >> "$TEMP_FILE"
-        done < "$BASH_ALIASES_FILE"
+        done < "$ALIASES_FILE"
     fi
 
-    # Add missing aliases
+    # Add all new aliases to final map
     while IFS= read -r line; do
-        alias_name=$(echo "$line" | awk '{print $2}' | cut -d= -f1)
-        if ! grep -q "^alias $alias_name=" "$TEMP_FILE"; then
-            echo "$line" >> "$TEMP_FILE"
-            echo -e "${GREEN}Added alias '$alias_name'${NC}"
+        if [[ "$line" =~ ^alias[[:space:]]+([^=]+)= ]]; then
+            alias_name="${BASH_REMATCH[1]}"
+            merged_aliases["$alias_name"]="$line"
         fi
-    done <<< "$aliases_to_add"
+    done <<< "$NEW_ALIASES"
 
-    # Move the new file to .bash_aliases
-    sudo -u "$SUDO_USER" cp "$TEMP_FILE" "$BASH_ALIASES_FILE"
-    sudo -u "$SUDO_USER" rm "$TEMP_FILE"
+    # Write final output
+    for key in "${!merged_aliases[@]}"; do
+        echo "${merged_aliases[$key]}" >> "$TEMP_FILE"
+    done
 
-    log ".bash_aliases file created/updated successfully for user: $SUDO_USER."
+    # Finalize and set ownership
+    sudo -u "$SUDO_USER" mv "$TEMP_FILE" "$ALIASES_FILE"
+    sudo chown "$SUDO_USER:$SUDO_USER" "$ALIASES_FILE"
+
+    log ".bash_aliases file updated successfully with interactive merging."
 }
 
 ###############################################################################
