@@ -465,6 +465,8 @@ EOL
                     echo -e "  ${CYAN}$existing_line${NC}"
                     echo -ne "${YELLOW}Keep this alias? [Y/n]: ${NC}" > /dev/tty
                     read -r response < /dev/tty
+                    # Flush stdin buffer to prevent menu from skipping
+                    read -t 0.1 -n 10000 discard < /dev/tty 2>/dev/null || true
                     if [[ -z "$response" || "$response" =~ ^[Yy]$ ]]; then
                         final_aliases["$alias_name"]="$existing_line"
                         echo -e "${GREEN}→ Keeping: $alias_name${NC}"
@@ -487,7 +489,7 @@ EOL
         final_aliases["$alias"]="${new_aliases[$alias]}"
     done
 
-    # ✅ Sort and write merged alias lines
+    # Sort and write merged alias lines
     for alias_line in "${final_aliases[@]}"; do
         echo "$alias_line"
     done | sort >> "$TEMP_FILE"
