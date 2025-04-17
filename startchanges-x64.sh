@@ -513,8 +513,8 @@ EOL
         echo -e "${RED}  → Removed aliases      : $removed_count${NC}"
     } > /dev/tty
 
-    # ⏸ Pause before returning to main menu
-    read -rp "Press Enter to return to menu..." < /dev/tty
+    # ⏸ Actually pause and wait for user in the *user* context
+    sudo -u "$SUDO_USER" bash -c 'read -rp "Press Enter to return to menu..." < /dev/tty'
 }
 
 ###############################################################################
