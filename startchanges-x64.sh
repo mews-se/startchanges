@@ -487,15 +487,12 @@ EOL
         final_aliases["$alias"]="${new_aliases[$alias]}"
     done
 
-    # Sort alias names alphabetically
-    sorted_alias_names=($(printf '%s\n' "${!final_aliases[@]}" | sort))
+    # ✅ Sort and write merged alias lines
+    for alias_line in "${final_aliases[@]}"; do
+        echo "$alias_line"
+    done | sort >> "$TEMP_FILE"
 
-    # Write sorted aliases to temp file
-    for alias_name in "${sorted_alias_names[@]}"; do
-        echo "${final_aliases[$alias_name]}" >> "$TEMP_FILE"
-    done
-
-    # Move to final location
+    # Finalize
     sudo mv "$TEMP_FILE" "$ALIASES_FILE"
     sudo chown "$SUDO_USER:$SUDO_USER" "$ALIASES_FILE"
     log ".bash_aliases updated successfully with interactive selections and sorted output."
