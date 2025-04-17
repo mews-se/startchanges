@@ -1,30 +1,63 @@
 # Automated System Configuration Script
 
+This Bash script automates post-install system configuration on Debian-based distributions. It includes user management, secure SSH setup, shell customizations, Docker & SNMPD installation, and alias configuration — all accessible through a user-friendly interactive menu.
+
+Designed for quick deployment or repeatable provisioning of servers, development environments, or home lab setups.
+
 ## Disclaimer
 
-This script is authored and maintained for personal use by the author. Users are encouraged to review the code and understand its operations before executing any commands. It is strongly recommended to test the script in a controlled, non-production environment to evaluate its impact and functionality specific to your system configuration.
+This script is provided as-is for personal and educational use and based on my personal needs. While it includes safety measures (like backups and prompts), you should review the code before running it, especially on production systems.
 
-The author assumes no responsibility for any unintended consequences, including but not limited to data loss, system downtime, or security breaches, resulting from the use of this script. By executing the script, users acknowledge and accept these risks.
-
-For critical systems or environments with unique configurations, consider adapting the script to suit specific requirements and conducting thorough testing prior to deployment.
+Use at your own risk. The author assumes no liability for system damage, data loss, or misconfiguration.
 
 ## Features
 
-- Interactive menu for common setup and configuration tasks
-- Smart `.bash_aliases` management:
-  - Adds predefined aliases automatically
-  - Prompts to keep or remove existing custom aliases
-  - Sorts final alias list alphabetically
-- Backup of `.bash_aliases` before modification
-- Safe, user-specific file handling with correct permissions
+- 🔧 System Update & Upgrade
+- 🔐 Secure SSH configuration:
+  - Disables root login
+  - Whitelist-based user access
+- ⚙️ Sudoers file update with passwordless sudo
+- 🔑 SSH key generation (Ed25519)
+- 🧠 Smart `.bashrc` & `.bash_aliases` management:
+  - Adds predefined aliases
+  - Prompts to keep/remove custom ones
+  - Sorted final output
+- 🐳 Docker CE installation (with plugin support)
+- 📱 SNMPD installation & custom `snmpd.conf`
+- 🚀 Fastfetch repository clone (for system summary)
+- 🗂️ All changes logged with date-stamped backups
+- 🧾 Built-in summary report and safe execution via main menu
 
 ## Usage
 
-1. Clone the repository or download the script.
-2. Make sure to run the script with appropriate permissions (`sudo`).
-3. Review the menu options and select the desired tasks to automate system configuration.
-4. Follow on-screen prompts to review and manage existing shell aliases.
-5. After changes, remember to source your updated `.bashrc` or `.bash_aliases` if needed (`source ~/.bashrc`).
+1. Download or clone the repository:
+   ```bash
+   git clone https://github.com/your-repo/startchanges.git
+   cd startchanges
+   sudo ./startchanges-x64.sh
+   ```
+
+2. Use the interactive menu to choose configuration tasks:
+   - Run all tasks at once
+   - Or execute them step by step
+
+3. After completing shell configuration, apply changes:
+   ```bash
+   source ~/.bashrc && source ~/.bash_aliases
+   ```
+
+4. For Docker: logout/login to activate group permissions.
+
+## What This Script Does
+
+- Configures a secure SSH environment
+- Grants passwordless sudo for the `sudo` group
+- Generates an SSH key if missing
+- Installs Docker and Docker Compose plugins
+- Sets up SNMP monitoring and custom extends
+- Replaces `.bashrc` and interactively manages `.bash_aliases`
+- Clones personal tools like Fastfetch
+- Ensures required system packages are installed
 
 ## Support
 
@@ -37,3 +70,4 @@ Contributions are welcome! If you find a bug or have an enhancement in mind, ple
 ## License
 
 This script is licensed under [The Unlicense](https://github.com/mews-se/startup-script/blob/test/LICENSE).
+
