@@ -390,15 +390,14 @@ create_bash_aliases() {
     log "Creating/updating .bash_aliases file."
 
     local BASH_ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
-    local TEMP_FILE="/home/$SUDO_USER/.bash_aliases_tmp"
+    local TEMP_FILE
+    TEMP_FILE=$(sudo -u "$SUDO_USER" mktemp "/home/$SUDO_USER/.bash_aliases_tmp.XXXXXX")
 
     # Backup .bash_aliases if it exists
     if [ -f "$BASH_ALIASES_FILE" ]; then
         sudo -u "$SUDO_USER" cp "$BASH_ALIASES_FILE" "${BASH_ALIASES_FILE}.bak_$(date +%F_%T)"
         log "Backup of existing .bash_aliases created."
-        sudo -u "$SUDO_USER" cp "$BASH_ALIASES_FILE" "$TEMP_FILE"
-    else
-        sudo -u "$SUDO_USER" touch "$TEMP_FILE"
+        sudo -u "$SUDO_USER" cat "$BASH_ALIASES_FILE" > "$TEMP_FILE"
     fi
 
     # List of aliases to be added
