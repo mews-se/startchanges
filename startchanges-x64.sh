@@ -390,16 +390,21 @@ create_bash_aliases() {
     log "Creating/updating .bash_aliases file."
 
     local BASH_ALIASES_FILE="/home/$SUDO_USER/.bash_aliases"
-    local TEMP_FILE
-    TEMP_FILE=$(sudo -u "$SUDO_USER" mktemp "/home/$SUDO_USER/.bash_aliases_tmp.XXXXXX")
+    local TEMP_FILE="/home/$SUDO_USER/.bash_aliases_tmp"
 
-    # Backup existing file
+    # Colors
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    NC='\033[0m' # No Color
+
+    # Backup
     if [ -f "$BASH_ALIASES_FILE" ]; then
         sudo -u "$SUDO_USER" cp "$BASH_ALIASES_FILE" "${BASH_ALIASES_FILE}.bak_$(date +%F_%T)"
         log "Backup of existing .bash_aliases created."
     fi
 
-    # Script-defined aliases
+    # Aliases from script
     local aliases_to_add
     aliases_to_add=$(cat <<'EOL'
 alias apta="sudo apt-get update && sudo apt-get dist-upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
@@ -436,20 +441,22 @@ alias wolnas="wakeonlan 90:09:d0:1f:95:b7"
 EOL
 )
 
-    # Extract script alias names into array
-    mapfile -t script_alias_names < <(echo "$aliases_to_add" | awk '{print $2}' | cut -d= -f1)
+    IFS=$'\n' read -rd '' -a script_alias_names <<< "$(echo "$aliases_to_add" | awk -F'[ =]' '/^alias / {print $2}')"
+
+    # Clear or create temp file
+    sudo -u "$SUDO_USER" bash -c ">$TEMP_FILE"
 
     log "Checking for aliases not present in script for potential removal..."
 
-    # Read current file line-by-line
     if [ -f "$BASH_ALIASES_FILE" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
             if [[ "$line" =~ ^alias[[:space:]]+([^=]+)= ]]; then
                 alias_name="${BASH_REMATCH[1]}"
                 if ! printf '%s\n' "${script_alias_names[@]}" | grep -qx "$alias_name"; then
-                    read -p "Alias '$alias_name' is not in the script. Remove it? (y/N): " resp
+                    echo -ne "${YELLOW}Alias '$alias_name' is not in the script. Remove it? (y/N): ${NC}" > /dev/tty
+                    read resp < /dev/tty
                     if [[ "$resp" =~ ^[Yy]$ ]]; then
-                        echo "Removed alias '$alias_name'"
+                        echo -e "${RED}Removed alias '$alias_name'${NC}" > /dev/tty
                         continue
                     fi
                 fi
@@ -458,15 +465,16 @@ EOL
         done < "$BASH_ALIASES_FILE"
     fi
 
-    # Append missing aliases
+    # Add missing aliases
     while IFS= read -r line; do
         alias_name=$(echo "$line" | awk '{print $2}' | cut -d= -f1)
         if ! grep -q "^alias $alias_name=" "$TEMP_FILE"; then
             echo "$line" >> "$TEMP_FILE"
+            echo -e "${GREEN}Added alias '$alias_name'${NC}"
         fi
     done <<< "$aliases_to_add"
 
-    # Replace final file
+    # Move the new file to .bash_aliases
     sudo -u "$SUDO_USER" cp "$TEMP_FILE" "$BASH_ALIASES_FILE"
     sudo -u "$SUDO_USER" rm "$TEMP_FILE"
 
