@@ -411,31 +411,31 @@ create_bash_aliases() {
     # Script-defined aliases
     local NEW_ALIASES=$(cat <<'EOL'
 alias apta="sudo apt-get update && sudo apt-get dist-upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
-alias sen="watch -n 1 sensors"
-alias reb="sudo reboot"
-alias dcupd="docker compose up -d"
-alias dcupdlog="docker compose up -d && docker compose logs -f"
+alias barseback="ssh dietpi@barseback.karnkraft.org"
+alias brkpi="ssh dietpi@10.0.1.13"
+alias dcdown="docker compose down"
 alias dclog="docker compose logs -f"
 alias dcpull="docker compose pull"
 alias dcstop="docker compose stop"
-alias dcdown="docker compose down"
+alias dcupd="docker compose up -d"
+alias dcupdlog="docker compose up -d && docker compose logs -f"
+alias dellpi="ssh dietpi@10.0.0.6"
+alias fa="fastfetch"
 alias fanoff="sudo systemctl stop fancontrol.service"
 alias fanon="sudo systemctl start fancontrol.service"
-alias kodipi="ssh dietpi@10.0.0.7"
-alias dellpi="ssh dietpi@10.0.0.6"
-alias brkpi="ssh dietpi@10.0.1.13"
-alias optiplex="ssh mews@192.168.1.6"
-alias pfsensebrk="ssh -p 2221 admin@192.168.1.1"
-alias pfsense="ssh -p 2221 admin@10.0.0.1"
-alias pfsensebrk2="ssh -p 2221 admin@10.0.1.1"
-alias mm="ssh martin@10.0.0.11"
-alias prox="ssh root@10.0.0.99"
-alias flight="ssh root@192.168.1.123"
-alias london="ssh dietpi@london.stockzell.se"
-alias testpi="ssh dietpi@10.0.0.8"
 alias ff="fastfetch -c all.jsonc"
-alias fa="fastfetch"
-alias barseback="ssh dietpi@barseback.karnkraft.org"
+alias flight="ssh root@192.168.1.123"
+alias kodipi="ssh dietpi@10.0.0.7"
+alias london="ssh dietpi@london.stockzell.se"
+alias mm="ssh martin@10.0.0.11"
+alias optiplex="ssh mews@192.168.1.6"
+alias pfsense="ssh -p 2221 admin@10.0.0.1"
+alias pfsensebrk="ssh -p 2221 admin@192.168.1.1"
+alias pfsensebrk2="ssh -p 2221 admin@10.0.1.1"
+alias prox="ssh root@10.0.0.99"
+alias reb="sudo reboot"
+alias sen="watch -n 1 sensors"
+alias testpi="ssh dietpi@10.0.0.8"
 alias wolnas="wakeonlan 90:09:d0:1f:95:b7"
 EOL
 )
@@ -443,7 +443,7 @@ EOL
     declare -A new_aliases
     declare -A final_aliases
 
-    # Map new aliases
+    # Parse new aliases into map
     while IFS= read -r line; do
         if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+([^=]+)= ]]; then
             name="${BASH_REMATCH[1]}"
@@ -453,7 +453,7 @@ EOL
 
     local found_custom=false
 
-    # Process existing .bash_aliases
+    # Check existing aliases
     if [ -f "$ALIASES_FILE" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
             if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+([^=]+)= ]]; then
@@ -482,20 +482,23 @@ EOL
         log "No custom aliases found for review."
     fi
 
-    # Add new aliases
+    # Add script-defined aliases (overwrites duplicates)
     for alias in "${!new_aliases[@]}"; do
         final_aliases["$alias"]="${new_aliases[$alias]}"
     done
 
-    # Write merged file
-    for alias_line in "${final_aliases[@]}"; do
-        echo "$alias_line" >> "$TEMP_FILE"
+    # Sort alias names alphabetically
+    sorted_alias_names=($(printf '%s\n' "${!final_aliases[@]}" | sort))
+
+    # Write sorted aliases to temp file
+    for alias_name in "${sorted_alias_names[@]}"; do
+        echo "${final_aliases[$alias_name]}" >> "$TEMP_FILE"
     done
 
-    # Save and cleanup
+    # Move to final location
     sudo mv "$TEMP_FILE" "$ALIASES_FILE"
     sudo chown "$SUDO_USER:$SUDO_USER" "$ALIASES_FILE"
-    log ".bash_aliases updated successfully with interactive selections."
+    log ".bash_aliases updated successfully with interactive selections and sorted output."
 }
 
 ###############################################################################
