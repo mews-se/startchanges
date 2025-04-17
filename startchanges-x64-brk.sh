@@ -413,7 +413,7 @@ create_bash_aliases() {
 alias apta="sudo apt-get update && sudo apt-get dist-upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
 alias barseback="ssh dietpi@barseback.karnkraft.org"
 alias brk2="ssh dietpi@10.0.1.7"
-alias brkpi="ssh dietpi@10.0.1.13"
+alias brkpi="ssh dietpi@10.0.1.8"
 alias dcdown="docker compose down"
 alias dclog="docker compose logs -f"
 alias dcpull="docker compose pull"
