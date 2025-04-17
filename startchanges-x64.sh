@@ -402,11 +402,6 @@ create_bash_aliases() {
     CYAN='\033[0;36m'
     NC='\033[0m'
 
-    # Track stats
-    added_count=0
-    kept_count=0
-    removed_count=0
-
     # Backup current file
     if [ -f "$ALIASES_FILE" ]; then
         sudo -u "$SUDO_USER" cp "$ALIASES_FILE" "$BACKUP_FILE"
@@ -466,17 +461,15 @@ EOL
                 existing_line="$line"
                 if [[ -z "${new_aliases[$alias_name]+exists}" ]]; then
                     found_custom=true
-                    echo -e "\n${YELLOW}Found alias not in script: ${CYAN}$alias_name${NC}" > /dev/tty
-                    echo -e "  ${CYAN}$existing_line${NC}" > /dev/tty
+                    echo -e "\n${YELLOW}Found alias not in script: ${CYAN}$alias_name${NC}"
+                    echo -e "  ${CYAN}$existing_line${NC}"
                     echo -ne "${YELLOW}Keep this alias? [Y/n]: ${NC}" > /dev/tty
                     read -r response < /dev/tty
                     if [[ -z "$response" || "$response" =~ ^[Yy]$ ]]; then
                         final_aliases["$alias_name"]="$existing_line"
-                        ((kept_count++))
-                        echo -e "${GREEN}→ Keeping: $alias_name${NC}" > /dev/tty
+                        echo -e "${GREEN}→ Keeping: $alias_name${NC}"
                     else
-                        ((removed_count++))
-                        echo -e "${RED}→ Removed: $alias_name${NC}" > /dev/tty
+                        echo -e "${RED}→ Removed: $alias_name${NC}"
                     fi
                 fi
             else
@@ -492,10 +485,9 @@ EOL
     # Add script-defined aliases (overwrites duplicates)
     for alias in "${!new_aliases[@]}"; do
         final_aliases["$alias"]="${new_aliases[$alias]}"
-        ((added_count++))
     done
 
-    # Sort and write merged alias lines
+    # ✅ Sort and write merged alias lines
     for alias_line in "${final_aliases[@]}"; do
         echo "$alias_line"
     done | sort >> "$TEMP_FILE"
@@ -504,17 +496,6 @@ EOL
     sudo mv "$TEMP_FILE" "$ALIASES_FILE"
     sudo chown "$SUDO_USER:$SUDO_USER" "$ALIASES_FILE"
     log ".bash_aliases updated successfully with interactive selections and sorted output."
-
-    # ✅ Summary to terminal
-    {
-        echo -e "\n${CYAN}Alias Update Summary:${NC}"
-        echo -e "${GREEN}  → Added script aliases : $added_count${NC}"
-        echo -e "${YELLOW}  → Kept custom aliases  : $kept_count${NC}"
-        echo -e "${RED}  → Removed aliases      : $removed_count${NC}"
-    } > /dev/tty
-
-    # ⏸ Actually pause and wait for user in the *user* context
-    sudo -u "$SUDO_USER" bash -c 'read -rp "Press Enter to return to menu..." < /dev/tty'
 }
 
 ###############################################################################
