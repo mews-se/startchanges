@@ -441,6 +441,7 @@ alias wolnas="wakeonlan 90:09:d0:1f:95:b7"
 EOL
 )
 
+    # List of aliases to add
     IFS=$'\n' read -rd '' -a script_alias_names <<< "$(echo "$aliases_to_add" | awk -F'[ =]' '/^alias / {print $2}')"
 
     # Clear or create temp file
@@ -452,11 +453,14 @@ EOL
         while IFS= read -r line || [ -n "$line" ]; do
             if [[ "$line" =~ ^alias[[:space:]]+([^=]+)= ]]; then
                 alias_name="${BASH_REMATCH[1]}"
+                echo -e "${YELLOW}Found alias: $alias_name${NC}"
+
+                # Check if alias is in the script
                 if ! printf '%s\n' "${script_alias_names[@]}" | grep -qx "$alias_name"; then
                     echo -ne "${YELLOW}Alias '$alias_name' is not in the script. Remove it? (y/N): ${NC}" > /dev/tty
                     read resp < /dev/tty
                     if [[ "$resp" =~ ^[Yy]$ ]]; then
-                        echo -e "${RED}Removed alias '$alias_name'${NC}" > /dev/tty
+                        echo -e "${RED}Removing alias '$alias_name'${NC}" > /dev/tty
                         continue
                     fi
                 fi
