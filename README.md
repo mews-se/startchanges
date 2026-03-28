@@ -1,9 +1,13 @@
 # Automated System Configuration Script
 
+![Version](https://img.shields.io/badge/version-v2026.03.28-informational)
+![Last Commit](https://img.shields.io/github/last-commit/mews-se/startchanges)
+![License](https://img.shields.io/github/license/mews-se/startchanges)
+
 This Bash script automates post-install system configuration on  
 Debian-based systems and DietPi installations. It provides secure  
-defaults, shell customization, Docker, SNMPD & PiVPN setup, and  
-repeatable provisioning --- all through an interactive menu.
+defaults, shell customization, Docker, SNMPD & PiVPN setup, Wake-on-LAN,  
+and NAS backup --- all through an interactive menu.
 
 The script supports multiple machine profiles (x64 servers and Raspberry  
 Pi systems) using **one unified script**, making maintenance and updates  
@@ -29,29 +33,30 @@ data loss, or misconfiguration.
 ## Features
 
 -   🔧 System Update & Upgrade
--   🔐 Secure SSH configuration
-    -   Disables root login
-    -   Whitelist-based SSH access
+-   🔐 Secure SSH configuration  
+    -   Disables root login  
+    -   Whitelist-based SSH access  
 -   ⚙️ Passwordless sudo configuration for the `sudo` group
 -   🔑 Automatic Ed25519 SSH key generation
--   🧠 Smart shell configuration
-    -   Recreates `.bashrc`
-    -   Interactive `.bash_aliases` merge
-    -   Preserves custom aliases when desired
+-   🧠 Smart shell configuration  
+    -   Recreates `.bashrc`  
+    -   Interactive `.bash_aliases` merge  
+    -   Preserves custom aliases when desired  
 -   🐳 Docker CE installation (official repository + plugins)
 -   🧹 Docker removal task (full cleanup option)
 -   📡 SNMPD installation with custom monitoring configuration
 -   🔐 PiVPN installation with automated client setup
-    -   Optional client creation after install
-    -   Automatic hostname-based naming (short hostname)
-    -   QR code generation for mobile devices
 -   🚀 Fastfetch repository cloning
--   🔄 DietPi upgrade helpers:
-    -   Bullseye → Bookworm
-    -   Bookworm → Trixie
+-   🔄 DietPi upgrade helpers  
+    -   Bullseye → Bookworm  
+    -   Bookworm → Trixie  
+-   🌐 Wake-on-LAN installation
+-   💾 NAS backup script generator (SMB/CIFS-based)  
+    -   Uses secure credential storage (`/root/.nas-credentials`)  
+    -   Incremental backups with rotation (current / previous_1 / previous_2)  
+    -   DietPi-style exclusions  
 -   🗂️ Automatic backups before modifying system files
 -   🧾 Timestamped logging
--   📋 Summary report after execution
 -   🖥️ Interactive menu-driven interface
 
 ------------------------------------------------------------------------
@@ -82,16 +87,12 @@ Each profile automatically applies:
 
 ### 1. Clone the repository
 
-``` bash
-git clone https://github.com/mews-se/startchanges.git
-cd startchanges
-```
+    git clone https://github.com/mews-se/startchanges.git
+    cd startchanges
 
 ### 2. Run the script
 
-``` bash
-sudo ./startchanges.sh
-```
+    sudo ./startchanges.sh
 
 ### 3. Select a profile
 
@@ -117,13 +118,9 @@ You may:
 
 After Docker installation:
 
-``` bash
-logout
-```
+    logout
 
 (or start a new shell session)
-
-This activates membership in the `docker` group.
 
 ------------------------------------------------------------------------
 
@@ -131,9 +128,7 @@ This activates membership in the `docker` group.
 
 After `.bashrc` and `.bash_aliases` changes:
 
-``` bash
-source ~/.bashrc && source ~/.bash_aliases
-```
+    source ~/.bashrc && source ~/.bash_aliases
 
 or log out and back in.
 
@@ -158,66 +153,44 @@ If selected, the script will automatically create:
     <hostname>-iph
     <hostname>-len
 
-Where:
-
--   `<hostname>` is automatically shortened  
-    (e.g. sub.domain.com → sub)
--   Names are kept within PiVPN’s 15-character limit
-
-You will also be prompted to display a QR code for mobile setup:
-
-    Show QR for <hostname>-iph? [Y/n]
-
-Default is **Yes**.
-
-⚠️ PiVPN installation is interactive and **NOT included** in "Run all tasks".
-
 ------------------------------------------------------------------------
 
-### DietPi Upgrades
-
-Two optional upgrade helpers are included:
-
--   **Update DietPi Bullseye → Bookworm**
--   **Update DietPi Bookworm → Trixie**
-
-These launch the official DietPi upgrade scripts.
-
-⚠️ These upgrades are **interactive** and intentionally **NOT included**  
-in "Run all tasks".
-
-They should be executed manually and monitored.  
-All credits goes to the creator of DietPi, Micha - https://github.com/MichaIng/DietPi
-
-------------------------------------------------------------------------
-
-### Docker Removal
+### NAS Backup
 
 The menu includes:
 
-    Remove Docker and relevant tools
+    Create NAS backup script
 
 This will:
 
--   Purge Docker packages
--   Remove Docker repositories and keys
--   Delete Docker and containerd data directories
+-   Generate `~/nas-backup.sh`
+-   Store credentials securely in:
 
-This task is **not executed automatically** by "Run all tasks".
+    /root/.nas-credentials
+
+-   Mount NAS via SMB/CIFS
+-   Perform rsync-based backup with rotation:
+
+    current  
+    previous_1  
+    previous_2  
+
+⚠️ Credentials are **never stored in the repository or main script**.
 
 ------------------------------------------------------------------------
 
 ## What This Script Does
 
 -   Hardens SSH configuration
--   Enables passwordless sudo for administration
--   Generates SSH keys if missing
--   Installs Docker and Compose plugins
--   Installs and configures PiVPN with optional client setup
+-   Enables passwordless sudo
+-   Generates SSH keys
+-   Installs Docker and plugins
+-   Installs PiVPN
 -   Configures SNMP monitoring
--   Standardizes shell environments
--   Installs required dependencies automatically
--   Provides consistent system setup across multiple machine types
+-   Standardizes shell environment
+-   Installs Wake-on-LAN tools
+-   Creates NAS backup system
+-   Ensures consistent system setup
 
 ------------------------------------------------------------------------
 
@@ -225,7 +198,7 @@ This task is **not executed automatically** by "Run all tasks".
 
 For questions or issues, please open an issue:
 
-https://github.com/mews-se/startup-script/issues
+https://github.com/mews-se/startchanges/issues
 
 ------------------------------------------------------------------------
 
@@ -233,11 +206,9 @@ https://github.com/mews-se/startup-script/issues
 
 Contributions are welcome.
 
-If you find a bug or want to improve functionality:
-
-1.  Fork the repository
-2.  Create a feature branch
-3.  Submit a pull request
+1.  Fork the repository  
+2.  Create a feature branch  
+3.  Submit a pull request  
 
 ------------------------------------------------------------------------
 
@@ -245,4 +216,4 @@ If you find a bug or want to improve functionality:
 
 Licensed under **The Unlicense**:
 
-https://github.com/mews-se/startup-script/blob/test/LICENSE
+https://github.com/mews-se/startchanges/blob/main/LICENSE
