@@ -968,6 +968,8 @@ cat > /tmp/nas-backup-excludes.txt <<'_EXC_'
 - /etc/fake-hwclock.data
 - /lost+found/
 - /var/cache/apt/*
+- /var/agentx/*
+- /var/lib/docker/volumes/backingFsBlockDev
 _EXC_
 
 if [ -x /boot/dietpi/dietpi-services ]; then
@@ -977,7 +979,7 @@ if [ -x /boot/dietpi/dietpi-services ]; then
 fi
 
 log "Running rsync backup."
-rsync -aH --whole-file --numeric-ids --delete-excluded \
+rsync -aH --whole-file --inplace --numeric-ids --delete-excluded \
     --info=progress2 \
     --info=name0 \
     --filter="merge /tmp/nas-backup-excludes.txt" \
@@ -1020,7 +1022,8 @@ EOF
     echo "Excluded DietPi rules:"
     echo "  /mnt/*, /media/*, /dev/, /proc/, /run/, /sys/, /tmp/"
     echo "  /var/swap, /.swap*, /etc/fake-hwclock.data, /lost+found/"
-    echo "  /var/cache/apt/*"
+    echo "  /var/cache/apt/*, /var/agentx/*"
+    echo "  /var/lib/docker/volumes/backingFsBlockDev"
 }
 
 ###############################################################################
