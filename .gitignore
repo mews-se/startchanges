@@ -1,39 +1,86 @@
-###############################################################################
-# Secrets / credentials (kritisk)
-###############################################################################
+# =========================
+# SENSITIVE FILES (CRITICAL)
+# =========================
+
+# NAS / SMB credentials
 .nas-credentials
-*.credentials*
-*.secret*
-*.secrets*
+/root/.nas-credentials
+*.credentials
+credentials.txt
+
+# Any accidental secrets
 *.env
+.env
 .env.*
+*.secret
 *.key
 *.pem
-*.p12
-*.pfx
-*.ovpn
-*.conf
+*.crt
 
-###############################################################################
-# System / temp
-###############################################################################
-*.log
-*.tmp
-*.swp
-*~
-.DS_Store
+# =========================
+# BACKUP / GENERATED FILES
+# =========================
 
-###############################################################################
-# DietPi / backup relaterat
-###############################################################################
-/mnt/
-/media/
-/tmp/
+# Generated backup scripts
+nas-backup.sh
+nas-backup-*.sh
+
+# Backup output folders
+dietpibackup/
 backup/
 backups/
 
-###############################################################################
-# Shell artifacts
-###############################################################################
-*.bak
-*.bak_*
+# Temporary exclude lists
+nas-backup-excludes.txt
+/tmp/nas-backup-*
+
+# =========================
+# LOG FILES
+# =========================
+
+*.log
+startchanges.log
+
+# =========================
+# SYSTEM / TEMP FILES
+# =========================
+
+*.tmp
+*.swp
+*~
+.cache/
+.tmp/
+
+# =========================
+# EDITOR / OS FILES
+# =========================
+
+.vscode/
+.idea/
+*.code-workspace
+
+.DS_Store
+Thumbs.db
+
+# =========================
+# PACKAGE / BUILD ARTIFACTS
+# =========================
+
+node_modules/
+dist/
+build/
+
+# =========================
+# DOCKER / RUNTIME FILES
+# =========================
+
+docker-compose.override.yml
+*.pid
+*.sock
+
+# =========================
+# OPTIONAL: ALLOW SCRIPTS
+# =========================
+
+# Allow all shell scripts explicitly
+!*.sh
