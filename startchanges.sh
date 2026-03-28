@@ -897,7 +897,7 @@ MOUNT_POINT="/mnt/nas_backup"
 CREDENTIALS_FILE="/root/.nas-credentials"
 BACKUP_ROOT_DIR="dietpibackup"
 SHORT_HOST="$(hostname -s 2>/dev/null || hostname | cut -d. -f1)"
-HOST_DIR="$MOUNT_POINT/$BACKUP_ROOT_DIR/$SHORT_HOST"
+HOST_DIR="$MOUNT_POINT/$BACKUP_ROOT_DIR/$SHORT_HOST/current"
 DIETPI_SERVICES_STOPPED=0
 
 log() {
@@ -939,20 +939,6 @@ fi
 
 mkdir -p "$HOST_DIR"
 
-if [ -d "$HOST_DIR/previous_2" ]; then
-    rm -rf "$HOST_DIR/previous_2"
-fi
-
-if [ -d "$HOST_DIR/previous_1" ]; then
-    mv "$HOST_DIR/previous_1" "$HOST_DIR/previous_2"
-fi
-
-if [ -d "$HOST_DIR/current" ]; then
-    mv "$HOST_DIR/current" "$HOST_DIR/previous_1"
-fi
-
-mkdir -p "$HOST_DIR/current"
-
 cat > /tmp/nas-backup-excludes.txt <<'_EXC_'
 - /mnt/nas_backup/
 + /mnt/dietpi_userdata/
@@ -978,29 +964,29 @@ if [ -x /boot/dietpi/dietpi-services ]; then
     DIETPI_SERVICES_STOPPED=1
 fi
 
-log "Running rsync backup."
+log "Running rsync backup sync."
 rsync -aH --whole-file --inplace --numeric-ids --delete-excluded \
     --info=progress2 \
     --info=name0 \
     --filter="merge /tmp/nas-backup-excludes.txt" \
-    / "$HOST_DIR/current"
+    / "$HOST_DIR"
 
 log "Saving metadata."
-dpkg --get-selections > "$HOST_DIR/current/package-list.txt" 2>/dev/null || true
-crontab -l > "$HOST_DIR/current/root-crontab.txt" 2>/dev/null || true
-systemctl list-unit-files > "$HOST_DIR/current/systemd-unit-files.txt" 2>/dev/null || true
-hostname > "$HOST_DIR/current/hostname.txt" 2>/dev/null || true
-uname -a > "$HOST_DIR/current/uname.txt" 2>/dev/null || true
-date > "$HOST_DIR/current/backup-date.txt" 2>/dev/null || true
+dpkg --get-selections > "$HOST_DIR/package-list.txt" 2>/dev/null || true
+crontab -l > "$HOST_DIR/root-crontab.txt" 2>/dev/null || true
+systemctl list-unit-files > "$HOST_DIR/systemd-unit-files.txt" 2>/dev/null || true
+hostname > "$HOST_DIR/hostname.txt" 2>/dev/null || true
+uname -a > "$HOST_DIR/uname.txt" 2>/dev/null || true
+date > "$HOST_DIR/backup-date.txt" 2>/dev/null || true
 
 if command -v docker >/dev/null 2>&1; then
-    docker ps -a > "$HOST_DIR/current/docker-ps.txt" 2>/dev/null || true
-    docker images > "$HOST_DIR/current/docker-images.txt" 2>/dev/null || true
+    docker ps -a > "$HOST_DIR/docker-ps.txt" 2>/dev/null || true
+    docker images > "$HOST_DIR/docker-images.txt" 2>/dev/null || true
 fi
 
 rm -f /tmp/nas-backup-excludes.txt
 
-log "Backup completed successfully to $HOST_DIR/current"
+log "Backup sync completed successfully to $HOST_DIR"
 EOF
 
     chmod +x "$backup_script"
@@ -1014,8 +1000,12 @@ EOF
     echo
     echo "NAS layout will be:"
     echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/current"
-    echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/previous_1"
-    echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/previous_2"
+    echo
+    echo "Behavior:"
+    echo "  Existing backup is updated in place"
+    echo "  New files are added"
+    echo "  Changed files are updated"
+    echo "  Removed files are deleted from backup"
     echo
     echo "Included DietPi rule:"
     echo "  /mnt/dietpi_userdata/ is included"
