@@ -1,6 +1,6 @@
 # Automated System Configuration Script
 
-![Version](https://img.shields.io/badge/version-v2026.03.28-blue)
+![Version](https://img.shields.io/github/v/tag/mews-se/startchanges?sort=semver)
 ![License](https://img.shields.io/badge/license-Unlicense-blue.svg)
 
 This Bash script automates post-install system configuration on  
@@ -151,7 +151,7 @@ wakeonlan <MAC>
 ```bash
 git clone https://github.com/mews-se/startchanges.git
 cd startchanges
-sudo ./startchanges_dietpi_style_folders_with_wol_prompt_creds.sh
+sudo ./startchanges.sh
 ```
 
 ------------------------------------------------------------------------
@@ -210,87 +210,4 @@ https://github.com/mews-se/startup-script/issues
 
 ## License
 
-Licensed under **The Unlicense**    ├── previous_1/
-    └── previous_2/
-
-Notes:
-- Uses SMB/CIFS
-- Uses rsync with progress
-- Stops DietPi services during backup
-- Matches DietPi backup behavior (not full root clone)
-
-------------------------------------------------------------------------
-
-## Credentials Handling
-
-Credentials are NOT stored in the script.
-
-They are stored in:
-/root/.nas-credentials
-
-Permissions:
-chmod 600
-
-The file is created automatically if missing and is never exposed in source code.
-
-------------------------------------------------------------------------
-
-## Usage
-
-git clone https://github.com/mews-se/startchanges.git  
-cd startchanges  
-sudo ./startchanges_dietpi_style_folders_with_wol_prompt_creds.sh  
-
-------------------------------------------------------------------------
-
-## Supported Profiles
-
-- x64  
-- x64-brk  
-- pi  
-- pi-brk  
-
-Each profile applies correct SNMP and environment configuration.
-
-------------------------------------------------------------------------
-
-## Important Notes
-
-Docker:  
-Run logout after installation to activate group membership.
-
-Shell:  
-source ~/.bashrc && source ~/.bash_aliases
-
-------------------------------------------------------------------------
-
-## PiVPN
-
-Optional install via menu.
-
-Auto client naming:
-<hostname>-tb7  
-<hostname>-mbp  
-<hostname>-iph  
-<hostname>-len  
-
-QR prompt included.
-
-Not part of "Run all tasks".
-
-------------------------------------------------------------------------
-
-## Security Recommendations
-
-Add to .gitignore:
-
-.nas-credentials  
-*.log  
-nas-backup.sh  
-dietpibackup/  
-
-------------------------------------------------------------------------
-
-## License
-
-Unlicense
+Licensed under **The Unlicense**
