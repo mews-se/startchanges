@@ -977,7 +977,7 @@ if [ -x /boot/dietpi/dietpi-services ]; then
 fi
 
 log "Running rsync backup."
-rsync -aH --delete-excluded \
+rsync -aH --whole-file --numeric-ids --delete-excluded \
     --info=progress2 \
     --info=name0 \
     --filter="merge /tmp/nas-backup-excludes.txt" \
@@ -1014,6 +1014,13 @@ EOF
     echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/current"
     echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/previous_1"
     echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/previous_2"
+    echo
+    echo "Included DietPi rule:"
+    echo "  /mnt/dietpi_userdata/ is included"
+    echo "Excluded DietPi rules:"
+    echo "  /mnt/*, /media/*, /dev/, /proc/, /run/, /sys/, /tmp/"
+    echo "  /var/swap, /.swap*, /etc/fake-hwclock.data, /lost+found/"
+    echo "  /var/cache/apt/*"
 }
 
 ###############################################################################
