@@ -897,12 +897,17 @@ MOUNT_POINT="/mnt/nas_backup"
 CREDENTIALS_FILE="/root/.nas-credentials"
 BACKUP_ROOT_DIR="dietpibackup"
 SHORT_HOST="$(hostname -s 2>/dev/null || hostname | cut -d. -f1)"
-HOST_DIR="$MOUNT_POINT/$BACKUP_ROOT_DIR/$SHORT_HOST/current"
+HOST_DIR="$MOUNT_POINT/$BACKUP_ROOT_DIR/$SHORT_HOST"
+LOCAL_LOG="/var/log/nas-backup.log"
 DIETPI_SERVICES_STOPPED=0
 
 log() {
     local message="$1"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - [INFO] $message"
+    local line
+    line="$(date '+%Y-%m-%d %H:%M:%S') - [INFO] $message"
+
+    echo "$line"
+    echo "$line" >> "$LOCAL_LOG" 2>/dev/null || true
 }
 
 cleanup() {
@@ -916,13 +921,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+touch "$LOCAL_LOG" 2>/dev/null || true
+
 log "Starting NAS backup script."
 
 apt-get update
 apt-get install -y cifs-utils rsync
 
 if [ ! -f "$CREDENTIALS_FILE" ]; then
-    echo "Missing credentials file: $CREDENTIALS_FILE"
+    log "Missing credentials file: $CREDENTIALS_FILE"
     exit 1
 fi
 
@@ -954,8 +961,6 @@ cat > /tmp/nas-backup-excludes.txt <<'_EXC_'
 - /etc/fake-hwclock.data
 - /lost+found/
 - /var/cache/apt/*
-- /var/agentx/*
-- /var/lib/docker/volumes/backingFsBlockDev
 _EXC_
 
 if [ -x /boot/dietpi/dietpi-services ]; then
@@ -965,11 +970,11 @@ if [ -x /boot/dietpi/dietpi-services ]; then
 fi
 
 log "Running rsync backup sync."
-rsync -aH --whole-file --inplace --numeric-ids --delete-excluded \
+rsync -aH -L --whole-file --inplace --numeric-ids --delete-excluded \
     --info=progress2 \
     --info=name0 \
     --filter="merge /tmp/nas-backup-excludes.txt" \
-    / "$HOST_DIR"
+    / "$HOST_DIR" 2>&1 | tee -a "$LOCAL_LOG"
 
 log "Saving metadata."
 dpkg --get-selections > "$HOST_DIR/package-list.txt" 2>/dev/null || true
@@ -986,7 +991,7 @@ fi
 
 rm -f /tmp/nas-backup-excludes.txt
 
-log "Backup sync completed successfully to $HOST_DIR"
+log "Backup completed successfully to $HOST_DIR"
 EOF
 
     chmod +x "$backup_script"
@@ -997,9 +1002,10 @@ EOF
     echo "Created files:"
     echo "  Backup script: $backup_script"
     echo "  Credentials:   $credentials_file"
+    echo "  Local log:     /var/log/nas-backup.log"
     echo
     echo "NAS layout will be:"
-    echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/current"
+    echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/"
     echo
     echo "Behavior:"
     echo "  Existing backup is updated in place"
@@ -1012,8 +1018,7 @@ EOF
     echo "Excluded DietPi rules:"
     echo "  /mnt/*, /media/*, /dev/, /proc/, /run/, /sys/, /tmp/"
     echo "  /var/swap, /.swap*, /etc/fake-hwclock.data, /lost+found/"
-    echo "  /var/cache/apt/*, /var/agentx/*"
-    echo "  /var/lib/docker/volumes/backingFsBlockDev"
+    echo "  /var/cache/apt/*"
 }
 
 ###############################################################################
