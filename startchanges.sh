@@ -50,7 +50,7 @@ fi
 ###############################################################################
 # Script metadata
 ###############################################################################
-SCRIPT_VERSION="v2026.03.28"
+SCRIPT_VERSION="v2026.04.01"
 LOG_FILE="/home/$SUDO_USER/startchanges.log"
 
 ###############################################################################
@@ -75,18 +75,102 @@ log() {
 }
 
 ###############################################################################
-# FUNCTION: check_command
-# Description: Optional command existence check helper
+# FUNCTION: backup_file
+# Description: Create a timestamped backup of a file if it exists
 ###############################################################################
-check_command() {
-    local cmd="$1"
-    if ! command -v "$cmd" &>/dev/null; then
-        log "Command '$cmd' not found. Please install it before proceeding." "ERROR"
+backup_file() {
+    local target_file="$1"
+    local backup_file
+
+    if [ ! -f "$target_file" ]; then
         return 1
-    else
-        log "Command '$cmd' is available."
-        return 0
     fi
+
+    backup_file="${target_file}.bak_$(date +%F_%T)"
+    sudo cp "$target_file" "$backup_file"
+    echo "$backup_file"
+}
+
+###############################################################################
+# FUNCTION: find_latest_backup
+# Description: Return latest timestamped backup for a target file
+###############################################################################
+find_latest_backup() {
+    local target_file="$1"
+
+    find "$(dirname "$target_file")" -maxdepth 1 -type f \
+        -name "$(basename "$target_file").bak_*" -printf '%T@ %p\n' 2>/dev/null | \
+        sort -nr | head -n1 | cut -d' ' -f2-
+}
+
+###############################################################################
+# FUNCTION: get_os_codename
+# Description: Read VERSION_CODENAME from /etc/os-release
+###############################################################################
+get_os_codename() {
+    local distro_codename
+
+    if [ ! -f /etc/os-release ]; then
+        return 1
+    fi
+
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    distro_codename="${VERSION_CODENAME:-}"
+
+    if [ -z "$distro_codename" ]; then
+        return 1
+    fi
+
+    echo "$distro_codename"
+}
+
+###############################################################################
+# FUNCTION: ssh_service_name
+# Description: Detect the active SSH service name
+###############################################################################
+ssh_service_name() {
+    if sudo systemctl list-unit-files ssh.service >/dev/null 2>&1; then
+        echo "ssh"
+    elif sudo systemctl list-unit-files sshd.service >/dev/null 2>&1; then
+        echo "sshd"
+    else
+        echo "ssh"
+    fi
+}
+
+###############################################################################
+# FUNCTION: restart_ssh_service
+# Description: Restart SSH service if present
+###############################################################################
+restart_ssh_service() {
+    local service_name
+    service_name="$(ssh_service_name)"
+
+    if sudo systemctl is-enabled "$service_name" >/dev/null 2>&1 ||
+       sudo systemctl is-active --quiet "$service_name"; then
+        sudo systemctl restart "$service_name"
+        log "SSH service '$service_name' restarted successfully."
+    else
+        log "SSH service '$service_name' is not active/enabled. Restart manually if needed." "WARN"
+    fi
+}
+
+###############################################################################
+# FUNCTION: get_allowed_ssh_users
+# Description: Build AllowUsers entry from available local accounts
+###############################################################################
+get_allowed_ssh_users() {
+    local users=()
+    local candidate
+
+    for candidate in "$SUDO_USER" dietpi mews; do
+        if id "$candidate" >/dev/null 2>&1; then
+            users+=("$candidate")
+        fi
+    done
+
+    awk 'NF { if (!seen[$0]++) printf "%s ", $0 }' < <(printf '%s\n' "${users[@]}") | sed 's/[[:space:]]*$//'
 }
 
 ###############################################################################
@@ -253,8 +337,8 @@ install_missing_packages() {
             exit 1
         fi
 
-        if ! echo "${missing_packages[@]}" | xargs -n1 -P9 sudo apt-get install -y; then
-            log "Parallel installation failed. Retrying packages one by one..." "WARN"
+        if ! sudo apt-get install -y "${missing_packages[@]}"; then
+            log "Bulk installation failed. Retrying packages one by one..." "WARN"
             for pkg in "${missing_packages[@]}"; do
                 if ! sudo apt-get install -y "$pkg"; then
                     failed_packages+=("$pkg")
@@ -269,7 +353,7 @@ install_missing_packages() {
                 exit 1
             fi
         else
-            log "Parallel installation successful."
+            log "Missing packages installed successfully."
         fi
     else
         log "All required packages are already installed."
@@ -307,9 +391,7 @@ preflight_docker() {
         return 1
     fi
 
-    # shellcheck disable=SC1091
-    . /etc/os-release
-    if [ -z "${VERSION_CODENAME:-}" ]; then
+    if ! get_os_codename >/dev/null; then
         log "Could not determine Debian codename." "ERROR"
         return 1
     fi
@@ -377,14 +459,23 @@ dietpi_bookworm_to_trixie() {
 ###############################################################################
 update_sudoers() {
     log "Updating sudoers."
-    local sudoers_file="/etc/sudoers"
-    sudo cp "$sudoers_file" "${sudoers_file}.bak_$(date +%F_%T)"
 
-    if sudo grep -q '^%sudo ALL=(ALL) NOPASSWD: ALL$' "$sudoers_file"; then
-        log "sudoers entry already exists. No changes needed."
+    local sudoers_dropin="/etc/sudoers.d/99-sudo-nopasswd"
+    local sudoers_content="%sudo ALL=(ALL) NOPASSWD: ALL"
+
+    if [ -f "$sudoers_dropin" ]; then
+        backup_file "$sudoers_dropin" >/dev/null || true
+    fi
+
+    printf '%s\n' "$sudoers_content" | sudo tee "$sudoers_dropin" > /dev/null
+    sudo chmod 440 "$sudoers_dropin"
+
+    if sudo visudo -cf /etc/sudoers >/dev/null 2>&1; then
+        log "sudoers drop-in updated successfully at $sudoers_dropin."
     else
-        sudo sed -E -i '/^%sudo/s/.*/%sudo ALL=(ALL) NOPASSWD: ALL/' "$sudoers_file"
-        log "sudoers entry updated successfully."
+        sudo rm -f "$sudoers_dropin"
+        log "visudo validation failed. Removed invalid sudoers drop-in." "ERROR"
+        return 1
     fi
 }
 
@@ -397,27 +488,35 @@ configure_ssh() {
 
     log "Configuring SSH."
     local sshd_config="/etc/ssh/sshd_config"
-    sudo cp "$sshd_config" "${sshd_config}.bak_$(date +%F_%T)"
+    local allow_users
+    allow_users="$(get_allowed_ssh_users)"
 
-    if sudo grep -q '^AllowUsers dietpi mews$' "$sshd_config"; then
-        log "AllowUsers already configured. No changes needed."
-        return 0
+    backup_file "$sshd_config" >/dev/null || true
+
+    sudo sed -E -i 's/^[#[:space:]]*PermitRootLogin[[:space:]]+.*/PermitRootLogin no/' "$sshd_config"
+    if ! sudo grep -Eq '^[[:space:]]*PermitRootLogin[[:space:]]+' "$sshd_config"; then
+        printf '%s\n' 'PermitRootLogin no' | sudo tee -a "$sshd_config" > /dev/null
     fi
-
-    sudo sed -E -i '/PermitRootLogin/s/^#?(PermitRootLogin).*/\1 no/' "$sshd_config"
     log "PermitRootLogin set to no."
 
-    sudo sed -E -i '/PermitRootLogin/a AllowUsers dietpi mews' "$sshd_config"
-    log "AllowUsers line added directly below PermitRootLogin."
-
-    if sudo systemctl is-active --quiet sshd; then
-        sudo systemctl restart sshd
-        log "SSH service restarted successfully."
+    if [ -n "$allow_users" ]; then
+        if sudo grep -Eq '^[#[:space:]]*AllowUsers[[:space:]]+' "$sshd_config"; then
+            sudo sed -E -i "s|^[#[:space:]]*AllowUsers[[:space:]]+.*|AllowUsers $allow_users|" "$sshd_config"
+        else
+            printf '%s\n' "AllowUsers $allow_users" | sudo tee -a "$sshd_config" > /dev/null
+        fi
+        log "AllowUsers set to: $allow_users"
     else
-        log "SSH service 'sshd' is not active (or service name differs). Restart manually if needed." "WARN"
+        log "No valid local users found for AllowUsers. Skipping AllowUsers update." "WARN"
     fi
 
-    log "SSH configuration updated successfully."
+    if sudo sshd -t -f "$sshd_config"; then
+        restart_ssh_service
+        log "SSH configuration updated successfully."
+    else
+        log "sshd_config validation failed. Restore the latest backup before retrying." "ERROR"
+        return 1
+    fi
 }
 
 ###############################################################################
@@ -438,8 +537,11 @@ generate_ssh_key() {
         log "Ed25519 SSH key generated successfully."
     fi
 
-    sudo chmod 600 "$KEY_FILE"
     sudo chmod 700 "$SSH_DIR"
+    sudo chmod 600 "$KEY_FILE"
+    if [ -f "$KEY_FILE.pub" ]; then
+        sudo chmod 644 "$KEY_FILE.pub"
+    fi
 }
 
 ###############################################################################
@@ -529,8 +631,10 @@ create_bash_aliases() {
 
     local USER_HOME="/home/$SUDO_USER"
     local ALIASES_FILE="$USER_HOME/.bash_aliases"
-    local BACKUP_FILE="$ALIASES_FILE.bak_$(date +%F_%T)"
+    local BACKUP_FILE
     local TEMP_FILE
+
+    BACKUP_FILE="$ALIASES_FILE.bak_$(date +%F_%T)"
     TEMP_FILE=$(sudo -u "$SUDO_USER" mktemp "$USER_HOME/.bash_aliases.tmp.XXXXXX")
 
     local RED GREEN YELLOW CYAN NC
@@ -611,8 +715,8 @@ EOL
                     echo -e "\n${YELLOW}Found alias not in script: ${CYAN}$alias_name${NC}"
                     echo -e "  ${CYAN}$existing_line${NC}"
                     echo -ne "${YELLOW}Keep this alias? [Y/n]: ${NC}" > /dev/tty
-                    read -r response < /dev/tty
-                    read -t 0.1 -n 10000 discard < /dev/tty 2>/dev/null || true
+                    IFS= read -r response < /dev/tty
+                    IFS= read -r -t 0.1 -n 10000 < /dev/tty 2>/dev/null || true
                     if [[ -z "$response" || "$response" =~ ^[Yy]$ ]]; then
                         final_aliases["$alias_name"]="$existing_line"
                         echo -e "${GREEN}→ Keeping: $alias_name${NC}"
@@ -721,9 +825,12 @@ install_docker_repository() {
     sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
     sudo chmod a+r /etc/apt/keyrings/docker.asc
 
+    local distro_codename
+    distro_codename="$(get_os_codename)"
+
     echo \
       "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
-      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+      ${distro_codename} stable" | \
       sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
     sudo apt-get update
@@ -763,6 +870,11 @@ install_pivpn() {
 ###############################################################################
 create_pivpn_clients() {
     log "Creating PiVPN client configurations."
+
+    if ! command -v pivpn >/dev/null 2>&1; then
+        log "PiVPN command not found. Install PiVPN first." "ERROR"
+        return 1
+    fi
 
     local HOST
     HOST="$(hostname -s)"
@@ -860,10 +972,14 @@ install_wakeonlan() {
 create_nas_backup_script() {
     log "Creating NAS backup script."
 
-    local backup_script="/home/$SUDO_USER/nas-backup.sh"
+    local invoking_user
+    local backup_script
     local credentials_file="/root/.nas-credentials"
     local nas_username=""
     local nas_password=""
+
+    invoking_user="${SUDO_USER:-$(id -un)}"
+    backup_script="/home/$invoking_user/nas-backup.sh"
 
     if [ ! -f "$credentials_file" ]; then
         echo
@@ -876,10 +992,8 @@ create_nas_backup_script() {
             return 1
         fi
 
-        sudo bash -c "cat > '$credentials_file' <<EOF
-username=$nas_username
-password=$nas_password
-EOF"
+        sudo install -m 600 /dev/null "$credentials_file"
+        printf 'username=%s\npassword=%s\n' "$nas_username" "$nas_password" | sudo tee "$credentials_file" > /dev/null
         sudo chmod 600 "$credentials_file"
         log "Created credentials file at $credentials_file"
     else
@@ -888,67 +1002,255 @@ EOF"
     fi
 
     cat > "$backup_script" <<'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# nas-backup.sh
+#
+# DietPi/Debian NAS backup script with local logging.
+# - CIFS mount using /root/.nas-credentials
+# - DietPi-like filter model
+# - Includes /home and /mnt/dietpi_userdata
+# - Excludes known runtime/problem paths
+# - Writes the physical log file to the invoking user's home directory
+# - Keeps rsync CLI behavior close to the original script
+#
+
 set -euo pipefail
 
-NAS_IP="10.0.0.100"
-SHARE_NAME="backup"
-MOUNT_POINT="/mnt/nas_backup"
+# -----------------------------------------------------------------------------
+# Settings
+# -----------------------------------------------------------------------------
+
+NAS_HOST="10.0.0.100"
+NAS_SHARE="backup"
+NAS_MOUNT_POINT="/mnt/nas_backup"
+NAS_BACKUP_ROOT="dietpibackup"
 CREDENTIALS_FILE="/root/.nas-credentials"
-BACKUP_ROOT_DIR="dietpibackup"
-SHORT_HOST="$(hostname -s 2>/dev/null || hostname | cut -d. -f1)"
-HOST_DIR="$MOUNT_POINT/$BACKUP_ROOT_DIR/$SHORT_HOST"
-LOCAL_LOG="/var/log/nas-backup.log"
-DIETPI_SERVICES_STOPPED=0
+
+HOST_NAME="$(hostname -s)"
+LOCK_FILE="/var/run/nas-backup.lock"
+EXCLUDES_FILE=""
+
+# -----------------------------------------------------------------------------
+# User / log path resolution
+# -----------------------------------------------------------------------------
+
+resolve_invoking_user() {
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+        printf '%s\n' "$SUDO_USER"
+    else
+        id -un
+    fi
+}
+
+resolve_home_dir() {
+    local user_name="$1"
+    local home_dir
+
+    home_dir="$(getent passwd "$user_name" | cut -d: -f6 || true)"
+
+    if [[ -n "$home_dir" ]]; then
+        printf '%s\n' "$home_dir"
+        return 0
+    fi
+
+    if [[ "$user_name" == "root" ]]; then
+        printf '%s\n' "/root"
+        return 0
+    fi
+
+    printf '%s\n' "/home/$user_name"
+}
+
+INVOKING_USER="$(resolve_invoking_user)"
+INVOKING_HOME="$(resolve_home_dir "$INVOKING_USER")"
+LOCAL_LOG="${INVOKING_HOME}/nas-backup.log"
+
+HOST_DIR="${NAS_MOUNT_POINT}/${NAS_BACKUP_ROOT}/${HOST_NAME}"
+MOUNT_OPTS="credentials=${CREDENTIALS_FILE},uid=0,gid=0,file_mode=0600,dir_mode=0700,vers=3.0,mfsymlinks"
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+
+timestamp() {
+    date '+%F %T'
+}
 
 log() {
     local message="$1"
-    local line
-    line="$(date '+%Y-%m-%d %H:%M:%S') - [INFO] $message"
-
-    echo "$line"
-    echo "$line" >> "$LOCAL_LOG" 2>/dev/null || true
+    local line="[$(timestamp)] $message"
+    printf '%s\n' "$line" | tee -a "$LOCAL_LOG"
 }
 
+prepare_log_file() {
+    mkdir -p "$INVOKING_HOME"
+    touch "$LOCAL_LOG"
+
+    if id "$INVOKING_USER" >/dev/null 2>&1; then
+        chown "$INVOKING_USER:$INVOKING_USER" "$LOCAL_LOG" 2>/dev/null || true
+    fi
+
+    chmod 0644 "$LOCAL_LOG" 2>/dev/null || true
+}
+
+# -----------------------------------------------------------------------------
+# Cleanup / locking
+# -----------------------------------------------------------------------------
+
 cleanup() {
+    local rc=$?
+
     if [ "${DIETPI_SERVICES_STOPPED:-0}" -eq 1 ] && [ -x /boot/dietpi/dietpi-services ]; then
         /boot/dietpi/dietpi-services start || true
     fi
 
-    if mountpoint -q "$MOUNT_POINT"; then
-        umount "$MOUNT_POINT" || true
+    if mountpoint -q "$NAS_MOUNT_POINT"; then
+        log "Unmounting NAS share: $NAS_MOUNT_POINT"
+        umount "$NAS_MOUNT_POINT" || log "Warning: failed to unmount $NAS_MOUNT_POINT"
+    fi
+
+    if [[ -n "${EXCLUDES_FILE:-}" && -f "${EXCLUDES_FILE}" ]]; then
+        rm -f "$EXCLUDES_FILE"
+    fi
+
+    if [[ -f "$LOCK_FILE" ]]; then
+        rm -f "$LOCK_FILE"
+    fi
+
+    if (( rc == 0 )); then
+        log "NAS backup finished successfully"
+    else
+        log "NAS backup ended with exit code $rc"
+    fi
+
+    if id "$INVOKING_USER" >/dev/null 2>&1; then
+        chown "$INVOKING_USER:$INVOKING_USER" "$LOCAL_LOG" 2>/dev/null || true
+    fi
+
+    exit "$rc"
+}
+
+acquire_lock() {
+    if [[ -e "$LOCK_FILE" ]]; then
+        log "Another backup appears to be running: $LOCK_FILE exists"
+        exit 1
+    fi
+    touch "$LOCK_FILE"
+}
+
+DIETPI_SERVICES_STOPPED=0
+trap cleanup EXIT INT TERM
+
+# -----------------------------------------------------------------------------
+# Validation
+# -----------------------------------------------------------------------------
+
+require_root() {
+    if [[ "${EUID}" -ne 0 ]]; then
+        echo "This script must be run as root." >&2
+        echo "Run it with: sudo bash $0" >&2
+        exit 1
     fi
 }
-trap cleanup EXIT
 
-touch "$LOCAL_LOG" 2>/dev/null || true
+check_requirements() {
+    local cmds=(mount umount mountpoint rsync hostname awk grep tee mktemp getent cut apt-get)
+    local cmd
 
-log "Starting NAS backup script."
+    for cmd in "${cmds[@]}"; do
+        command -v "$cmd" >/dev/null 2>&1 || {
+            echo "Missing required command: $cmd" >&2
+            exit 1
+        }
+    done
 
-apt-get update
-apt-get install -y cifs-utils rsync
+    if [[ ! -f "$CREDENTIALS_FILE" ]]; then
+        echo "Missing credentials file: $CREDENTIALS_FILE" >&2
+        exit 1
+    fi
 
-if [ ! -f "$CREDENTIALS_FILE" ]; then
-    log "Missing credentials file: $CREDENTIALS_FILE"
-    exit 1
-fi
+    chmod 600 "$CREDENTIALS_FILE" || true
+}
 
-chmod 600 "$CREDENTIALS_FILE"
-mkdir -p "$MOUNT_POINT"
+# -----------------------------------------------------------------------------
+# Service handling
+# -----------------------------------------------------------------------------
 
-if ! mountpoint -q "$MOUNT_POINT"; then
-    mount -t cifs "//$NAS_IP/$SHARE_NAME" "$MOUNT_POINT" \
-        -o "credentials=$CREDENTIALS_FILE,iocharset=utf8,uid=0,gid=0,file_mode=0600,dir_mode=0700,mfsymlinks,vers=3.0"
-    log "Mounted //$NAS_IP/$SHARE_NAME to $MOUNT_POINT"
-else
-    log "$MOUNT_POINT is already mounted."
-fi
+stop_services() {
+    if [ -x /boot/dietpi/dietpi-services ]; then
+        log "Stopping DietPi services for backup consistency."
+        /boot/dietpi/dietpi-services stop || true
+        DIETPI_SERVICES_STOPPED=1
+        return 0
+    fi
 
-mkdir -p "$HOST_DIR"
+    log "Stopping selected services before backup"
+    systemctl stop cron 2>/dev/null || true
+    systemctl stop crond 2>/dev/null || true
+    systemctl stop snmpd 2>/dev/null || true
+    systemctl stop docker 2>/dev/null || true
+    systemctl stop containerd 2>/dev/null || true
+}
 
-cat > /tmp/nas-backup-excludes.txt <<'_EXC_'
+# -----------------------------------------------------------------------------
+# NAS mounting
+# -----------------------------------------------------------------------------
+
+ensure_mountpoint() {
+    mkdir -p "$NAS_MOUNT_POINT"
+}
+
+mount_nas() {
+    if mountpoint -q "$NAS_MOUNT_POINT"; then
+        log "NAS share already mounted at $NAS_MOUNT_POINT"
+        return 0
+    fi
+
+    log "Mounting //$NAS_HOST/$NAS_SHARE to $NAS_MOUNT_POINT"
+    mount -t cifs "//$NAS_HOST/$NAS_SHARE" "$NAS_MOUNT_POINT" -o "$MOUNT_OPTS"
+    log "NAS share mounted successfully"
+}
+
+prepare_target() {
+    mkdir -p "$HOST_DIR"
+    log "Backup target ready: $HOST_DIR"
+}
+
+write_metadata() {
+    log "Saving metadata."
+
+    dpkg --get-selections > "$HOST_DIR/package-list.txt" 2>/dev/null || true
+    crontab -l > "$HOST_DIR/root-crontab.txt" 2>/dev/null || true
+    systemctl list-unit-files > "$HOST_DIR/systemd-unit-files.txt" 2>/dev/null || true
+    hostname > "$HOST_DIR/hostname.txt" 2>/dev/null || true
+    uname -a > "$HOST_DIR/uname.txt" 2>/dev/null || true
+    date > "$HOST_DIR/backup-date.txt" 2>/dev/null || true
+
+    if [[ -r /etc/os-release ]]; then
+        cp /etc/os-release "$HOST_DIR/os-release.txt" 2>/dev/null || true
+    fi
+
+    if command -v docker >/dev/null 2>&1; then
+        docker ps -a > "$HOST_DIR/docker-ps.txt" 2>/dev/null || true
+        docker images > "$HOST_DIR/docker-images.txt" 2>/dev/null || true
+    fi
+}
+
+# -----------------------------------------------------------------------------
+# Filter file
+# -----------------------------------------------------------------------------
+
+create_excludes_file() {
+    EXCLUDES_FILE="$(mktemp /tmp/nas-backup-excludes.XXXXXX)"
+
+    cat > "$EXCLUDES_FILE" <<'EOF_EXCLUDES'
 - /mnt/nas_backup/
++ /home/
++ /home/**
++ /mnt/
 + /mnt/dietpi_userdata/
++ /mnt/dietpi_userdata/**
 - /mnt/*
 - /media/*
 - /dev/
@@ -961,48 +1263,73 @@ cat > /tmp/nas-backup-excludes.txt <<'_EXC_'
 - /etc/fake-hwclock.data
 - /lost+found/
 - /var/cache/apt/*
-_EXC_
+- /var/lib/docker/
+- /var/lib/containerd/
+- /var/lib/containers/
+- /var/agentx/
+- /var/run/*
+- /var/tmp/*
+- /usr/share/man/
+EOF_EXCLUDES
 
-if [ -x /boot/dietpi/dietpi-services ]; then
-    log "Stopping DietPi services for backup consistency."
-    /boot/dietpi/dietpi-services stop || true
-    DIETPI_SERVICES_STOPPED=1
-fi
+    log "Created exclude file: $EXCLUDES_FILE"
+}
 
-log "Running rsync backup sync."
-rsync -aH -L --whole-file --inplace --numeric-ids --delete-excluded \
-    --info=progress2 \
-    --info=name0 \
-    --filter="merge /tmp/nas-backup-excludes.txt" \
-    / "$HOST_DIR" 2>&1 | tee -a "$LOCAL_LOG"
+# -----------------------------------------------------------------------------
+# Backup
+# -----------------------------------------------------------------------------
 
-log "Saving metadata."
-dpkg --get-selections > "$HOST_DIR/package-list.txt" 2>/dev/null || true
-crontab -l > "$HOST_DIR/root-crontab.txt" 2>/dev/null || true
-systemctl list-unit-files > "$HOST_DIR/systemd-unit-files.txt" 2>/dev/null || true
-hostname > "$HOST_DIR/hostname.txt" 2>/dev/null || true
-uname -a > "$HOST_DIR/uname.txt" 2>/dev/null || true
-date > "$HOST_DIR/backup-date.txt" 2>/dev/null || true
+run_backup() {
+    log "Starting rsync backup"
 
-if command -v docker >/dev/null 2>&1; then
-    docker ps -a > "$HOST_DIR/docker-ps.txt" 2>/dev/null || true
-    docker images > "$HOST_DIR/docker-images.txt" 2>/dev/null || true
-fi
+    rsync -aH --whole-file --inplace --numeric-ids --delete --delete-delay \
+        --safe-links \
+        --info=progress2 \
+        --info=name0 \
+        --filter="merge ${EXCLUDES_FILE}" \
+        / "$HOST_DIR" 2>&1 | tee -a "$LOCAL_LOG"
 
-rm -f /tmp/nas-backup-excludes.txt
+    log "rsync completed"
+}
 
-log "Backup completed successfully to $HOST_DIR"
+# -----------------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------------
+
+main() {
+    require_root
+    check_requirements
+    prepare_log_file
+    acquire_lock
+
+    log "Starting NAS backup script."
+
+    apt-get update
+    apt-get install -y cifs-utils rsync
+
+    ensure_mountpoint
+    mount_nas
+    prepare_target
+    create_excludes_file
+    stop_services
+    run_backup
+    write_metadata
+
+    log "Backup completed successfully to $HOST_DIR"
+}
+
+main "$@"
 EOF
 
     chmod +x "$backup_script"
-    chown "$SUDO_USER:$SUDO_USER" "$backup_script"
+    chown "$invoking_user:$invoking_user" "$backup_script"
 
     log "NAS backup script created at $backup_script"
     echo
     echo "Created files:"
     echo "  Backup script: $backup_script"
     echo "  Credentials:   $credentials_file"
-    echo "  Local log:     /var/log/nas-backup.log"
+    echo "  Local log:     /home/$invoking_user/nas-backup.log"
     echo
     echo "NAS layout will be:"
     echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/"
@@ -1013,31 +1340,175 @@ EOF
     echo "  Changed files are updated"
     echo "  Removed files are deleted from backup"
     echo
-    echo "Included DietPi rule:"
-    echo "  /mnt/dietpi_userdata/ is included"
-    echo "Excluded DietPi rules:"
+    echo "Included rules:"
+    echo "  /home/"
+    echo "  /mnt/dietpi_userdata/"
+    echo "Excluded rules:"
     echo "  /mnt/*, /media/*, /dev/, /proc/, /run/, /sys/, /tmp/"
     echo "  /var/swap, /.swap*, /etc/fake-hwclock.data, /lost+found/"
-    echo "  /var/cache/apt/*"
+    echo "  /var/cache/apt/*, /var/lib/docker/, /var/lib/containerd/"
+    echo "  /var/lib/containers/, /var/agentx/, /var/run/*, /var/tmp/*"
+    echo "  /usr/share/man/"
 }
 
 ###############################################################################
 # FUNCTION: clone_fastfetch_repository
-# Description: Clone update-fastfetch into the invoking user's home directory
+# Description: Clone/update update-fastfetch and write consolidated updater script
 ###############################################################################
 clone_fastfetch_repository() {
-    log "Cloning GitHub repository update-fastfetch."
+    log "Preparing update-fastfetch repository."
 
     local REPO_URL="https://github.com/mews-se/update-fastfetch.git"
     local DEST_DIR="/home/$SUDO_USER/update-fastfetch"
+    local SCRIPT_PATH="$DEST_DIR/updatefastfetch.sh"
 
-    if [ -d "$DEST_DIR" ]; then
-        log "Repository already exists at $DEST_DIR. Skipping cloning."
+    if [ -d "$DEST_DIR/.git" ]; then
+        log "Repository already exists at $DEST_DIR. Pulling latest changes."
+        sudo -u "$SUDO_USER" git -C "$DEST_DIR" pull --ff-only || {
+            log "Failed to update existing repository at $DEST_DIR." "ERROR"
+            return 1
+        }
+    elif [ -d "$DEST_DIR" ]; then
+        log "Directory $DEST_DIR exists but is not a git repository. Leaving it unchanged." "ERROR"
+        return 1
     else
-        sudo -u "$SUDO_USER" git clone "$REPO_URL" "$DEST_DIR"
+        sudo -u "$SUDO_USER" git clone "$REPO_URL" "$DEST_DIR" || {
+            log "Failed to clone repository to $DEST_DIR." "ERROR"
+            return 1
+        }
         log "Repository cloned successfully to $DEST_DIR."
     fi
+
+    cat > "$SCRIPT_PATH" <<'EOF'
+#!/usr/bin/env bash
+#
+# updatefastfetch.sh
+#
+# Consolidated Fastfetch updater for Debian/DietPi-style systems.
+# - Detects the correct architecture automatically
+# - Downloads the latest matching .deb package from GitHub releases
+# - Can be run as a normal user; uses sudo only for installation
+#
+
+set -euo pipefail
+
+log() {
+    printf '[%s] %s
+' "$(date '+%F %T')" "$1"
 }
+
+require_cmd() {
+    command -v "$1" >/dev/null 2>&1 || {
+        printf 'Missing required command: %s
+' "$1" >&2
+        exit 1
+    }
+}
+
+detect_architecture() {
+    local dpkg_arch=""
+    local uname_arch=""
+
+    if command -v dpkg >/dev/null 2>&1; then
+        dpkg_arch="$(dpkg --print-architecture 2>/dev/null || true)"
+    fi
+
+    case "$dpkg_arch" in
+        amd64) printf '%s
+' "linux-amd64.deb"; return 0 ;;
+        arm64) printf '%s
+' "linux-aarch64.deb"; return 0 ;;
+        armhf) printf '%s
+' "linux-arm7l.deb"; return 0 ;;
+    esac
+
+    uname_arch="$(uname -m)"
+    case "$uname_arch" in
+        x86_64) printf '%s
+' "linux-amd64.deb" ;;
+        aarch64|arm64) printf '%s
+' "linux-aarch64.deb" ;;
+        armv7l|armv7*|armhf|arm7l) printf '%s
+' "linux-arm7l.deb" ;;
+        *)
+            printf 'Unsupported architecture: %s
+' "$uname_arch" >&2
+            exit 1
+            ;;
+    esac
+}
+
+get_release_url() {
+    local asset_name="$1"
+
+    curl -fsSL "https://api.github.com/repos/fastfetch-cli/fastfetch/releases/latest" | \
+        grep '"browser_download_url":' | \
+        grep "$asset_name" | \
+        cut -d '"' -f 4 | \
+        head -n 1
+}
+
+main() {
+    require_cmd curl
+    require_cmd grep
+    require_cmd cut
+    require_cmd head
+
+    local asset_name=""
+    local release_url=""
+    local temp_deb=""
+    local installer=""
+
+    asset_name="$(detect_architecture)"
+    log "Detected Fastfetch asset: $asset_name"
+
+    release_url="$(get_release_url "$asset_name")"
+    if [ -z "$release_url" ]; then
+        printf 'Could not resolve release URL for asset: %s
+' "$asset_name" >&2
+        exit 1
+    fi
+
+    log "Resolved release URL: $release_url"
+
+    temp_deb="/tmp/fastfetch_latest_${asset_name}"
+    rm -f "$temp_deb"
+
+    log "Downloading package to $temp_deb"
+    curl -fL "$release_url" -o "$temp_deb"
+
+    if [ ! -s "$temp_deb" ]; then
+        printf 'Downloaded file is empty: %s
+' "$temp_deb" >&2
+        exit 1
+    fi
+
+    if command -v sudo >/dev/null 2>&1 && [ "${EUID}" -ne 0 ]; then
+        installer="sudo"
+    else
+        installer=""
+    fi
+
+    log "Installing package via apt-get"
+    if [ -n "$installer" ]; then
+        sudo apt-get install -y "$temp_deb"
+    else
+        apt-get install -y "$temp_deb"
+    fi
+
+    rm -f "$temp_deb"
+    log "Fastfetch install/update complete"
+}
+
+main "$@"
+EOF
+
+    chmod +x "$SCRIPT_PATH"
+    chown "$SUDO_USER:$SUDO_USER" "$SCRIPT_PATH"
+
+    log "Consolidated updatefastfetch.sh written to $SCRIPT_PATH"
+}
+
 
 ###############################################################################
 # FUNCTION: summary_report
@@ -1055,7 +1526,7 @@ summary_report() {
     log ".bashrc & .bash_aliases: Created/Updated"
     log "SNMPD: Installed/Configured"
     log "Docker: Repository Added & Docker CE Installed"
-    log "Fastfetch Repo: Cloned (if it didn't already exist)"
+    log "Fastfetch Repo: Cloned/updated with consolidated updater script"
     log "Wake-on-LAN: Not included in Run all tasks"
     log "NAS Backup Script: Not included in Run all tasks"
     log "--------------"
@@ -1082,7 +1553,7 @@ show_available_backups() {
     local user_home="/home/$SUDO_USER"
 
     local files=(
-        "/etc/sudoers"
+        "/etc/sudoers.d/99-sudo-nopasswd"
         "/etc/ssh/sshd_config"
         "/etc/snmp/snmpd.conf"
         "$user_home/.bashrc"
@@ -1093,7 +1564,7 @@ show_available_backups() {
     for file in "${files[@]}"; do
         echo
         echo "File: $file"
-        latest_backup=$(ls -1t "${file}".bak_* 2>/dev/null | head -n1 || true)
+        latest_backup="$(find_latest_backup "$file" || true)"
 
         if [ -n "$latest_backup" ]; then
             echo "Latest backup: $latest_backup"
@@ -1114,7 +1585,7 @@ restore_from_backup() {
     local target_file latest_backup choice response
 
     echo "Select file to restore:"
-    echo "  1) /etc/sudoers"
+    echo "  1) /etc/sudoers.d/99-sudo-nopasswd"
     echo "  2) /etc/ssh/sshd_config"
     echo "  3) /etc/snmp/snmpd.conf"
     echo "  4) $user_home/.bashrc"
@@ -1124,7 +1595,7 @@ restore_from_backup() {
     read -rp "Enter your choice: " choice
 
     case "$choice" in
-        1) target_file="/etc/sudoers" ;;
+        1) target_file="/etc/sudoers.d/99-sudo-nopasswd" ;;
         2) target_file="/etc/ssh/sshd_config" ;;
         3) target_file="/etc/snmp/snmpd.conf" ;;
         4) target_file="$user_home/.bashrc" ;;
@@ -1139,7 +1610,7 @@ restore_from_backup() {
             ;;
     esac
 
-    latest_backup=$(ls -1t "${target_file}".bak_* 2>/dev/null | head -n1 || true)
+    latest_backup="$(find_latest_backup "$target_file" || true)"
 
     if [ -z "$latest_backup" ]; then
         log "No backup found for $target_file" "ERROR"
@@ -1163,11 +1634,12 @@ restore_from_backup() {
 
     case "$target_file" in
         "/etc/ssh/sshd_config")
-            if sudo systemctl is-active --quiet sshd; then
-                sudo systemctl restart sshd
-                log "sshd restarted after restore."
+            if sudo sshd -t -f /etc/ssh/sshd_config; then
+                restart_ssh_service
+                log "SSH service restarted after restore."
             else
-                log "sshd not active; restart manually if needed." "WARN"
+                log "Restored sshd_config failed validation. Review it before restarting SSH." "ERROR"
+                return 1
             fi
             ;;
         "/etc/snmp/snmpd.conf")
@@ -1197,7 +1669,7 @@ run_health_check() {
     echo "Health check results:"
     echo "---------------------"
 
-    if grep -q '^%sudo ALL=(ALL) NOPASSWD: ALL$' /etc/sudoers 2>/dev/null; then
+    if grep -q '^%sudo ALL=(ALL) NOPASSWD: ALL$' /etc/sudoers.d/99-sudo-nopasswd 2>/dev/null; then
         echo "[OK]    sudoers configured for passwordless sudo"
     else
         echo "[ERROR] sudoers entry missing or incorrect"
@@ -1209,16 +1681,18 @@ run_health_check() {
         echo "[ERROR] SSH root login not configured as expected"
     fi
 
-    if grep -q '^AllowUsers dietpi mews$' /etc/ssh/sshd_config 2>/dev/null; then
+    if grep -Eq '^[#[:space:]]*AllowUsers[[:space:]]+' /etc/ssh/sshd_config 2>/dev/null; then
         echo "[OK]    AllowUsers configured"
     else
         echo "[WARN]  AllowUsers entry missing"
     fi
 
-    if sudo systemctl is-active --quiet sshd; then
-        echo "[OK]    sshd service is active"
+    local ssh_service
+    ssh_service="$(ssh_service_name)"
+    if sudo systemctl is-active --quiet "$ssh_service"; then
+        echo "[OK]    ${ssh_service} service is active"
     else
-        echo "[WARN]  sshd service is not active"
+        echo "[WARN]  ${ssh_service} service is not active"
     fi
 
     if [ -f "$ssh_key" ] && [ -f "$ssh_pub" ]; then
@@ -1365,9 +1839,7 @@ show_important_paths() {
     echo "  Credentials: /root/.nas-credentials"
     echo "  Mount point: /mnt/nas_backup"
     echo "  NAS layout:"
-    echo "    //10.0.0.100/backup/dietpibackup/${short_host}/current"
-    echo "    //10.0.0.100/backup/dietpibackup/${short_host}/previous_1"
-    echo "    //10.0.0.100/backup/dietpibackup/${short_host}/previous_2"
+    echo "    //10.0.0.100/backup/dietpibackup/${short_host}/"
     echo
     echo "Latest backups:"
     local files=(
@@ -1379,7 +1851,7 @@ show_important_paths() {
     )
     local file latest_backup
     for file in "${files[@]}"; do
-        latest_backup=$(ls -1t "${file}".bak_* 2>/dev/null | head -n1 || true)
+        latest_backup="$(find_latest_backup "$file" || true)"
         echo "  $file"
         echo "    ${latest_backup:-No backup found}"
     done
@@ -1468,7 +1940,7 @@ menu() {
         echo "  11) Install PiVPN"
         echo "  12) Install Docker and relevant tools"
         echo "  13) Remove Docker and relevant tools"
-        echo "  14) Clone the update-fastfetch repo"
+        echo "  14) Clone/update the update-fastfetch repo"
         echo "  15) Run all tasks"
         echo "  16) Show available backups"
         echo "  17) Restore from backup"
@@ -1529,15 +2001,143 @@ select_profile
 apply_profile_config
 install_missing_packages
 menu
-check_command() {
-    local cmd="$1"
-    if ! command -v "$cmd" &>/dev/null; then
-        log "Command '$cmd' not found. Please install it before proceeding." "ERROR"
-        return 1
+###############################################################################
+# Trap signals for graceful exit
+###############################################################################
+trap 'echo "Script interrupted. Exiting..."; exit 1' SIGINT SIGTERM
+
+###############################################################################
+# Validate environment: SUDO_USER must be set
+###############################################################################
+if [ -z "${SUDO_USER:-}" ]; then
+    echo "Error: SUDO_USER is not set. Please run this script with sudo." >&2
+    exit 1
+fi
+
+###############################################################################
+# Script metadata
+###############################################################################
+SCRIPT_VERSION="v2026.04.01 RC1"
+LOG_FILE="/home/$SUDO_USER/startchanges.log"
+
+###############################################################################
+# FUNCTION: log
+# Description: Timestamped log helper with optional logfile in user home
+###############################################################################
+log() {
+    local message="$1"
+    local level="${2:-INFO}"
+    local line
+    line="$(date '+%Y-%m-%d %H:%M:%S') - [$level] $message"
+
+    if [ "$level" = "ERROR" ]; then
+        echo "$line" >&2
     else
-        log "Command '$cmd' is available."
-        return 0
+        echo "$line"
     fi
+
+    touch "$LOG_FILE" 2>/dev/null || true
+    chmod 644 "$LOG_FILE" 2>/dev/null || true
+    echo "$line" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+###############################################################################
+# FUNCTION: backup_file
+# Description: Create a timestamped backup of a file if it exists
+###############################################################################
+backup_file() {
+    local target_file="$1"
+    local backup_file
+
+    if [ ! -f "$target_file" ]; then
+        return 1
+    fi
+
+    backup_file="${target_file}.bak_$(date +%F_%T)"
+    sudo cp "$target_file" "$backup_file"
+    echo "$backup_file"
+}
+
+###############################################################################
+# FUNCTION: find_latest_backup
+# Description: Return latest timestamped backup for a target file
+###############################################################################
+find_latest_backup() {
+    local target_file="$1"
+
+    find "$(dirname "$target_file")" -maxdepth 1 -type f \
+        -name "$(basename "$target_file").bak_*" -printf '%T@ %p\n' 2>/dev/null | \
+        sort -nr | head -n1 | cut -d' ' -f2-
+}
+
+###############################################################################
+# FUNCTION: get_os_codename
+# Description: Read VERSION_CODENAME from /etc/os-release
+###############################################################################
+get_os_codename() {
+    local distro_codename
+
+    if [ ! -f /etc/os-release ]; then
+        return 1
+    fi
+
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    distro_codename="${VERSION_CODENAME:-}"
+
+    if [ -z "$distro_codename" ]; then
+        return 1
+    fi
+
+    echo "$distro_codename"
+}
+
+###############################################################################
+# FUNCTION: ssh_service_name
+# Description: Detect the active SSH service name
+###############################################################################
+ssh_service_name() {
+    if sudo systemctl list-unit-files ssh.service >/dev/null 2>&1; then
+        echo "ssh"
+    elif sudo systemctl list-unit-files sshd.service >/dev/null 2>&1; then
+        echo "sshd"
+    else
+        echo "ssh"
+    fi
+}
+
+###############################################################################
+# FUNCTION: restart_ssh_service
+# Description: Restart SSH service if present
+###############################################################################
+restart_ssh_service() {
+    local service_name
+    service_name="$(ssh_service_name)"
+
+    if sudo systemctl is-enabled "$service_name" >/dev/null 2>&1 ||
+       sudo systemctl is-active --quiet "$service_name"; then
+        sudo systemctl restart "$service_name"
+        log "SSH service '$service_name' restarted successfully."
+    else
+        log "SSH service '$service_name' is not active/enabled. Restart manually if needed." "WARN"
+    fi
+}
+
+###############################################################################
+# FUNCTION: get_allowed_ssh_users
+# Description: Build AllowUsers entry from available local accounts
+###############################################################################
+get_allowed_ssh_users() {
+    local users=()
+    local candidate
+
+    for candidate in "$SUDO_USER" dietpi mews; do
+        if id "$candidate" >/dev/null 2>&1; then
+            users+=("$candidate")
+        fi
+    done
+
+    awk 'NF { if (!seen[$0]++) printf "%s ", $0 }' < <(printf '%s\n' "${users[@]}") | sed 's/[[:space:]]*$//'
 }
 
 ###############################################################################
@@ -1704,8 +2304,8 @@ install_missing_packages() {
             exit 1
         fi
 
-        if ! echo "${missing_packages[@]}" | xargs -n1 -P9 sudo apt-get install -y; then
-            log "Parallel installation failed. Retrying packages one by one..." "WARN"
+        if ! sudo apt-get install -y "${missing_packages[@]}"; then
+            log "Bulk installation failed. Retrying packages one by one..." "WARN"
             for pkg in "${missing_packages[@]}"; do
                 if ! sudo apt-get install -y "$pkg"; then
                     failed_packages+=("$pkg")
@@ -1720,7 +2320,7 @@ install_missing_packages() {
                 exit 1
             fi
         else
-            log "Parallel installation successful."
+            log "Missing packages installed successfully."
         fi
     else
         log "All required packages are already installed."
@@ -1734,6 +2334,59 @@ install_missing_packages() {
     done
 
     log "All required commands are now available."
+}
+
+###############################################################################
+# FUNCTION: preflight_ssh
+# Description: Check basic SSH prerequisites before editing sshd_config
+###############################################################################
+preflight_ssh() {
+    if [ ! -f /etc/ssh/sshd_config ]; then
+        log "/etc/ssh/sshd_config not found." "ERROR"
+        return 1
+    fi
+    return 0
+}
+
+###############################################################################
+# FUNCTION: preflight_docker
+# Description: Check basic prerequisites before Docker repo installation
+###############################################################################
+preflight_docker() {
+    if [ ! -f /etc/os-release ]; then
+        log "/etc/os-release not found." "ERROR"
+        return 1
+    fi
+
+    if ! get_os_codename >/dev/null; then
+        log "Could not determine Debian codename." "ERROR"
+        return 1
+    fi
+
+    if ! command -v curl >/dev/null 2>&1; then
+        log "curl is required for Docker repository installation." "ERROR"
+        return 1
+    fi
+
+    return 0
+}
+
+###############################################################################
+# FUNCTION: preflight_pivpn
+# Description: Check basic prerequisites before PiVPN installation
+###############################################################################
+preflight_pivpn() {
+    if ! command -v curl >/dev/null 2>&1; then
+        log "curl is required for PiVPN installation." "ERROR"
+        return 1
+    fi
+
+    if ! command -v script >/dev/null 2>&1; then
+        log "'script' command is required for PiVPN installer PTY handling." "ERROR"
+        return 1
+    fi
+
+    return 0
 }
 
 ###############################################################################
@@ -1773,14 +2426,23 @@ dietpi_bookworm_to_trixie() {
 ###############################################################################
 update_sudoers() {
     log "Updating sudoers."
-    local sudoers_file="/etc/sudoers"
-    sudo cp "$sudoers_file" "${sudoers_file}.bak_$(date +%F_%T)"
 
-    if sudo grep -q '^%sudo ALL=(ALL) NOPASSWD: ALL$' "$sudoers_file"; then
-        log "sudoers entry already exists. No changes needed."
+    local sudoers_dropin="/etc/sudoers.d/99-sudo-nopasswd"
+    local sudoers_content="%sudo ALL=(ALL) NOPASSWD: ALL"
+
+    if [ -f "$sudoers_dropin" ]; then
+        backup_file "$sudoers_dropin" >/dev/null || true
+    fi
+
+    printf '%s\n' "$sudoers_content" | sudo tee "$sudoers_dropin" > /dev/null
+    sudo chmod 440 "$sudoers_dropin"
+
+    if sudo visudo -cf /etc/sudoers >/dev/null 2>&1; then
+        log "sudoers drop-in updated successfully at $sudoers_dropin."
     else
-        sudo sed -E -i '/^%sudo/s/.*/%sudo ALL=(ALL) NOPASSWD: ALL/' "$sudoers_file"
-        log "sudoers entry updated successfully."
+        sudo rm -f "$sudoers_dropin"
+        log "visudo validation failed. Removed invalid sudoers drop-in." "ERROR"
+        return 1
     fi
 }
 
@@ -1789,29 +2451,39 @@ update_sudoers() {
 # Description: Disable root SSH login and restrict allowed users
 ###############################################################################
 configure_ssh() {
+    preflight_ssh || return 1
+
     log "Configuring SSH."
     local sshd_config="/etc/ssh/sshd_config"
-    sudo cp "$sshd_config" "${sshd_config}.bak_$(date +%F_%T)"
+    local allow_users
+    allow_users="$(get_allowed_ssh_users)"
 
-    if sudo grep -q '^AllowUsers dietpi mews$' "$sshd_config"; then
-        log "AllowUsers already configured. No changes needed."
-        return 0
+    backup_file "$sshd_config" >/dev/null || true
+
+    sudo sed -E -i 's/^[#[:space:]]*PermitRootLogin[[:space:]]+.*/PermitRootLogin no/' "$sshd_config"
+    if ! sudo grep -Eq '^[[:space:]]*PermitRootLogin[[:space:]]+' "$sshd_config"; then
+        printf '%s\n' 'PermitRootLogin no' | sudo tee -a "$sshd_config" > /dev/null
     fi
-
-    sudo sed -E -i '/PermitRootLogin/s/^#?(PermitRootLogin).*/\1 no/' "$sshd_config"
     log "PermitRootLogin set to no."
 
-    sudo sed -E -i '/PermitRootLogin/a AllowUsers dietpi mews' "$sshd_config"
-    log "AllowUsers line added directly below PermitRootLogin."
-
-    if sudo systemctl is-active --quiet sshd; then
-        sudo systemctl restart sshd
-        log "SSH service restarted successfully."
+    if [ -n "$allow_users" ]; then
+        if sudo grep -Eq '^[#[:space:]]*AllowUsers[[:space:]]+' "$sshd_config"; then
+            sudo sed -E -i "s|^[#[:space:]]*AllowUsers[[:space:]]+.*|AllowUsers $allow_users|" "$sshd_config"
+        else
+            printf '%s\n' "AllowUsers $allow_users" | sudo tee -a "$sshd_config" > /dev/null
+        fi
+        log "AllowUsers set to: $allow_users"
     else
-        log "SSH service 'sshd' is not active (or service name differs). Restart manually if needed." "WARN"
+        log "No valid local users found for AllowUsers. Skipping AllowUsers update." "WARN"
     fi
 
-    log "SSH configuration updated successfully."
+    if sudo sshd -t -f "$sshd_config"; then
+        restart_ssh_service
+        log "SSH configuration updated successfully."
+    else
+        log "sshd_config validation failed. Restore the latest backup before retrying." "ERROR"
+        return 1
+    fi
 }
 
 ###############################################################################
@@ -1832,8 +2504,11 @@ generate_ssh_key() {
         log "Ed25519 SSH key generated successfully."
     fi
 
-    sudo chmod 600 "$KEY_FILE"
     sudo chmod 700 "$SSH_DIR"
+    sudo chmod 600 "$KEY_FILE"
+    if [ -f "$KEY_FILE.pub" ]; then
+        sudo chmod 644 "$KEY_FILE.pub"
+    fi
 }
 
 ###############################################################################
@@ -1923,8 +2598,10 @@ create_bash_aliases() {
 
     local USER_HOME="/home/$SUDO_USER"
     local ALIASES_FILE="$USER_HOME/.bash_aliases"
-    local BACKUP_FILE="$ALIASES_FILE.bak_$(date +%F_%T)"
+    local BACKUP_FILE
     local TEMP_FILE
+
+    BACKUP_FILE="$ALIASES_FILE.bak_$(date +%F_%T)"
     TEMP_FILE=$(sudo -u "$SUDO_USER" mktemp "$USER_HOME/.bash_aliases.tmp.XXXXXX")
 
     local RED GREEN YELLOW CYAN NC
@@ -1983,6 +2660,7 @@ EOL
     declare -A new_aliases
     declare -A final_aliases
 
+    local line
     while IFS= read -r line; do
         if [[ "$line" =~ ^[[:space:]]*alias[[:space:]]+([^=]+)= ]]; then
             local name
@@ -2004,8 +2682,8 @@ EOL
                     echo -e "\n${YELLOW}Found alias not in script: ${CYAN}$alias_name${NC}"
                     echo -e "  ${CYAN}$existing_line${NC}"
                     echo -ne "${YELLOW}Keep this alias? [Y/n]: ${NC}" > /dev/tty
-                    read -r response < /dev/tty
-                    read -t 0.1 -n 10000 discard < /dev/tty 2>/dev/null || true
+                    IFS= read -r response < /dev/tty
+                    IFS= read -r -t 0.1 -n 10000 < /dev/tty 2>/dev/null || true
                     if [[ -z "$response" || "$response" =~ ^[Yy]$ ]]; then
                         final_aliases["$alias_name"]="$existing_line"
                         echo -e "${GREEN}→ Keeping: $alias_name${NC}"
@@ -2102,6 +2780,8 @@ EOF
 # Description: Add Docker official repository
 ###############################################################################
 install_docker_repository() {
+    preflight_docker || return 1
+
     log "Installing Docker repository."
 
     sudo apt-get update
@@ -2112,9 +2792,12 @@ install_docker_repository() {
     sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
     sudo chmod a+r /etc/apt/keyrings/docker.asc
 
+    local distro_codename
+    distro_codename="$(get_os_codename)"
+
     echo \
       "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
-      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+      ${distro_codename} stable" | \
       sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
     sudo apt-get update
@@ -2126,6 +2809,8 @@ install_docker_repository() {
 # Description: Install PiVPN via PTY and optionally create default clients
 ###############################################################################
 install_pivpn() {
+    preflight_pivpn || return 1
+
     log "Installing PiVPN."
 
     local tmp
@@ -2152,6 +2837,11 @@ install_pivpn() {
 ###############################################################################
 create_pivpn_clients() {
     log "Creating PiVPN client configurations."
+
+    if ! command -v pivpn >/dev/null 2>&1; then
+        log "PiVPN command not found. Install PiVPN first." "ERROR"
+        return 1
+    fi
 
     local HOST
     HOST="$(hostname -s)"
@@ -2215,24 +2905,6 @@ remove_docker_and_tools() {
 }
 
 ###############################################################################
-# FUNCTION: clone_fastfetch_repository
-# Description: Clone update-fastfetch into the invoking user's home directory
-###############################################################################
-clone_fastfetch_repository() {
-    log "Cloning GitHub repository update-fastfetch."
-
-    local REPO_URL="https://github.com/mews-se/update-fastfetch.git"
-    local DEST_DIR="/home/$SUDO_USER/update-fastfetch"
-
-    if [ -d "$DEST_DIR" ]; then
-        log "Repository already exists at $DEST_DIR. Skipping cloning."
-    else
-        sudo -u "$SUDO_USER" git clone "$REPO_URL" "$DEST_DIR"
-        log "Repository cloned successfully to $DEST_DIR."
-    fi
-}
-
-###############################################################################
 # FUNCTION: install_wakeonlan
 # Description: Install Wake-on-LAN tools
 ###############################################################################
@@ -2262,7 +2934,7 @@ install_wakeonlan() {
 
 ###############################################################################
 # FUNCTION: create_nas_backup_script
-# Description: Generate standalone NAS backup script with DietPi-like filters
+# Description: Generate standalone NAS backup script using SMB credentials file
 ###############################################################################
 create_nas_backup_script() {
     log "Creating NAS backup script."
@@ -2283,10 +2955,8 @@ create_nas_backup_script() {
             return 1
         fi
 
-        sudo bash -c "cat > '$credentials_file' <<EOF
-username=$nas_username
-password=$nas_password
-EOF"
+        sudo install -m 600 /dev/null "$credentials_file"
+        printf 'username=%s\npassword=%s\n' "$nas_username" "$nas_password" | sudo tee "$credentials_file" > /dev/null
         sudo chmod 600 "$credentials_file"
         log "Created credentials file at $credentials_file"
     else
@@ -2305,14 +2975,22 @@ CREDENTIALS_FILE="/root/.nas-credentials"
 BACKUP_ROOT_DIR="dietpibackup"
 SHORT_HOST="$(hostname -s 2>/dev/null || hostname | cut -d. -f1)"
 HOST_DIR="$MOUNT_POINT/$BACKUP_ROOT_DIR/$SHORT_HOST"
+LOCAL_LOG="/var/log/nas-backup.log"
 DIETPI_SERVICES_STOPPED=0
+EXCLUDES_FILE="$(mktemp /tmp/nas-backup-excludes.XXXXXX)"
 
 log() {
     local message="$1"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - [INFO] $message"
+    local line
+    line="$(date '+%Y-%m-%d %H:%M:%S') - [INFO] $message"
+
+    echo "$line"
+    echo "$line" >> "$LOCAL_LOG" 2>/dev/null || true
 }
 
 cleanup() {
+    rm -f "$EXCLUDES_FILE"
+
     if [ "${DIETPI_SERVICES_STOPPED:-0}" -eq 1 ] && [ -x /boot/dietpi/dietpi-services ]; then
         /boot/dietpi/dietpi-services start || true
     fi
@@ -2323,13 +3001,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+touch "$LOCAL_LOG" 2>/dev/null || true
+
 log "Starting NAS backup script."
 
 apt-get update
 apt-get install -y cifs-utils rsync
 
 if [ ! -f "$CREDENTIALS_FILE" ]; then
-    echo "Missing credentials file: $CREDENTIALS_FILE"
+    log "Missing credentials file: $CREDENTIALS_FILE"
     exit 1
 fi
 
@@ -2346,21 +3026,7 @@ fi
 
 mkdir -p "$HOST_DIR"
 
-if [ -d "$HOST_DIR/previous_2" ]; then
-    rm -rf "$HOST_DIR/previous_2"
-fi
-
-if [ -d "$HOST_DIR/previous_1" ]; then
-    mv "$HOST_DIR/previous_1" "$HOST_DIR/previous_2"
-fi
-
-if [ -d "$HOST_DIR/current" ]; then
-    mv "$HOST_DIR/current" "$HOST_DIR/previous_1"
-fi
-
-mkdir -p "$HOST_DIR/current"
-
-cat > /tmp/nas-backup-excludes.txt <<'_EXC_'
+cat > "$EXCLUDES_FILE" <<'_EXC_'
 - /mnt/nas_backup/
 + /mnt/dietpi_userdata/
 - /mnt/*
@@ -2375,6 +3041,7 @@ cat > /tmp/nas-backup-excludes.txt <<'_EXC_'
 - /etc/fake-hwclock.data
 - /lost+found/
 - /var/cache/apt/*
+- /var/lib/docker/
 _EXC_
 
 if [ -x /boot/dietpi/dietpi-services ]; then
@@ -2383,29 +3050,28 @@ if [ -x /boot/dietpi/dietpi-services ]; then
     DIETPI_SERVICES_STOPPED=1
 fi
 
-log "Running rsync backup."
-rsync -aH --delete-excluded \
+log "Running rsync backup sync."
+rsync -aH --whole-file --inplace --numeric-ids --delete --delete-delay \
+    --no-links --safe-links \
     --info=progress2 \
     --info=name0 \
-    --filter="merge /tmp/nas-backup-excludes.txt" \
-    / "$HOST_DIR/current"
+    --filter="merge $EXCLUDES_FILE" \
+    / "$HOST_DIR" 2>&1 | tee -a "$LOCAL_LOG"
 
 log "Saving metadata."
-dpkg --get-selections > "$HOST_DIR/current/package-list.txt" 2>/dev/null || true
-crontab -l > "$HOST_DIR/current/root-crontab.txt" 2>/dev/null || true
-systemctl list-unit-files > "$HOST_DIR/current/systemd-unit-files.txt" 2>/dev/null || true
-hostname > "$HOST_DIR/current/hostname.txt" 2>/dev/null || true
-uname -a > "$HOST_DIR/current/uname.txt" 2>/dev/null || true
-date > "$HOST_DIR/current/backup-date.txt" 2>/dev/null || true
+dpkg --get-selections > "$HOST_DIR/package-list.txt" 2>/dev/null || true
+crontab -l > "$HOST_DIR/root-crontab.txt" 2>/dev/null || true
+systemctl list-unit-files > "$HOST_DIR/systemd-unit-files.txt" 2>/dev/null || true
+hostname > "$HOST_DIR/hostname.txt" 2>/dev/null || true
+uname -a > "$HOST_DIR/uname.txt" 2>/dev/null || true
+date > "$HOST_DIR/backup-date.txt" 2>/dev/null || true
 
 if command -v docker >/dev/null 2>&1; then
-    docker ps -a > "$HOST_DIR/current/docker-ps.txt" 2>/dev/null || true
-    docker images > "$HOST_DIR/current/docker-images.txt" 2>/dev/null || true
+    docker ps -a > "$HOST_DIR/docker-ps.txt" 2>/dev/null || true
+    docker images > "$HOST_DIR/docker-images.txt" 2>/dev/null || true
 fi
 
-rm -f /tmp/nas-backup-excludes.txt
-
-log "Backup completed successfully to $HOST_DIR/current"
+log "Backup completed successfully to $HOST_DIR"
 EOF
 
     chmod +x "$backup_script"
@@ -2416,18 +3082,41 @@ EOF
     echo "Created files:"
     echo "  Backup script: $backup_script"
     echo "  Credentials:   $credentials_file"
+    echo "  Local log:     /var/log/nas-backup.log"
     echo
     echo "NAS layout will be:"
-    echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/current"
-    echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/previous_1"
-    echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/previous_2"
+    echo "  //10.0.0.100/backup/dietpibackup/<short-hostname>/"
+    echo
+    echo "Behavior:"
+    echo "  Existing backup is updated in place"
+    echo "  New files are added"
+    echo "  Changed files are updated"
+    echo "  Removed files are deleted from backup"
     echo
     echo "Included DietPi rule:"
     echo "  /mnt/dietpi_userdata/ is included"
     echo "Excluded DietPi rules:"
     echo "  /mnt/*, /media/*, /dev/, /proc/, /run/, /sys/, /tmp/"
     echo "  /var/swap, /.swap*, /etc/fake-hwclock.data, /lost+found/"
-    echo "  /var/cache/apt/*"
+    echo "  /var/cache/apt/*, /var/lib/docker/"
+}
+
+###############################################################################
+# FUNCTION: clone_fastfetch_repository
+# Description: Clone update-fastfetch into the invoking user's home directory
+###############################################################################
+clone_fastfetch_repository() {
+    log "Cloning GitHub repository update-fastfetch."
+
+    local REPO_URL="https://github.com/mews-se/update-fastfetch.git"
+    local DEST_DIR="/home/$SUDO_USER/update-fastfetch"
+
+    if [ -d "$DEST_DIR" ]; then
+        log "Repository already exists at $DEST_DIR. Skipping cloning."
+    else
+        sudo -u "$SUDO_USER" git clone "$REPO_URL" "$DEST_DIR"
+        log "Repository cloned successfully to $DEST_DIR."
+    fi
 }
 
 ###############################################################################
@@ -2437,6 +3126,7 @@ EOF
 summary_report() {
     log "Summary Report:"
     log "--------------"
+    log "Version: $SCRIPT_VERSION"
     log "Profile: $PROFILE"
     log "System Update & Upgrade: Completed"
     log "Sudoers: Updated"
@@ -2446,14 +3136,377 @@ summary_report() {
     log "SNMPD: Installed/Configured"
     log "Docker: Repository Added & Docker CE Installed"
     log "Fastfetch Repo: Cloned (if it didn't already exist)"
+    log "Wake-on-LAN: Not included in Run all tasks"
+    log "NAS Backup Script: Not included in Run all tasks"
+    log "--------------"
+    log "Not included in Run all tasks:"
+    log "  - PiVPN installation"
+    log "  - Docker removal"
+    log "  - DietPi upgrades"
+    log "  - Backup restore"
+    log "  - Health check / paths display"
+    log "  - Profile config display"
+    log "  - Wake-on-LAN install"
+    log "  - NAS backup script generation"
     log "--------------"
     log "All tasks completed."
 }
 
 ###############################################################################
+# FUNCTION: show_available_backups
+# Description: Show latest backup files for important configuration files
+###############################################################################
+show_available_backups() {
+    log "Showing available backups."
+
+    local user_home="/home/$SUDO_USER"
+
+    local files=(
+        "/etc/sudoers.d/99-sudo-nopasswd"
+        "/etc/ssh/sshd_config"
+        "/etc/snmp/snmpd.conf"
+        "$user_home/.bashrc"
+        "$user_home/.bash_aliases"
+    )
+
+    local file latest_backup
+    for file in "${files[@]}"; do
+        echo
+        echo "File: $file"
+        latest_backup="$(find_latest_backup "$file" || true)"
+
+        if [ -n "$latest_backup" ]; then
+            echo "Latest backup: $latest_backup"
+        else
+            echo "Latest backup: None found"
+        fi
+    done
+}
+
+###############################################################################
+# FUNCTION: restore_from_backup
+# Description: Restore the latest backup of a selected file
+###############################################################################
+restore_from_backup() {
+    log "Restore from backup selected."
+
+    local user_home="/home/$SUDO_USER"
+    local target_file latest_backup choice response
+
+    echo "Select file to restore:"
+    echo "  1) /etc/sudoers.d/99-sudo-nopasswd"
+    echo "  2) /etc/ssh/sshd_config"
+    echo "  3) /etc/snmp/snmpd.conf"
+    echo "  4) $user_home/.bashrc"
+    echo "  5) $user_home/.bash_aliases"
+    echo "  6) Cancel"
+
+    read -rp "Enter your choice: " choice
+
+    case "$choice" in
+        1) target_file="/etc/sudoers.d/99-sudo-nopasswd" ;;
+        2) target_file="/etc/ssh/sshd_config" ;;
+        3) target_file="/etc/snmp/snmpd.conf" ;;
+        4) target_file="$user_home/.bashrc" ;;
+        5) target_file="$user_home/.bash_aliases" ;;
+        6)
+            log "Restore cancelled."
+            return 0
+            ;;
+        *)
+            log "Invalid restore choice." "ERROR"
+            return 1
+            ;;
+    esac
+
+    latest_backup="$(find_latest_backup "$target_file" || true)"
+
+    if [ -z "$latest_backup" ]; then
+        log "No backup found for $target_file" "ERROR"
+        return 1
+    fi
+
+    echo "Latest backup found:"
+    echo "  $latest_backup"
+    read -rp "Restore this backup? [y/N]: " response
+
+    if [[ ! "$response" =~ ^[Yy]$ ]]; then
+        log "Restore aborted."
+        return 0
+    fi
+
+    if [[ "$target_file" == /etc/* ]]; then
+        sudo cp "$latest_backup" "$target_file"
+    else
+        sudo -u "$SUDO_USER" cp "$latest_backup" "$target_file"
+    fi
+
+    case "$target_file" in
+        "/etc/ssh/sshd_config")
+            if sudo sshd -t -f /etc/ssh/sshd_config; then
+                restart_ssh_service
+                log "SSH service restarted after restore."
+            else
+                log "Restored sshd_config failed validation. Review it before restarting SSH." "ERROR"
+                return 1
+            fi
+            ;;
+        "/etc/snmp/snmpd.conf")
+            if sudo systemctl is-active --quiet snmpd; then
+                sudo systemctl restart snmpd
+                log "snmpd restarted after restore."
+            else
+                log "snmpd not active; restart manually if needed." "WARN"
+            fi
+            ;;
+    esac
+
+    log "Restore completed for $target_file"
+}
+
+###############################################################################
+# FUNCTION: run_health_check
+# Description: Verify status of important setup components
+###############################################################################
+run_health_check() {
+    log "Running health check."
+
+    local user_home="/home/$SUDO_USER"
+    local ssh_key="$user_home/.ssh/id_ed25519"
+    local ssh_pub="$user_home/.ssh/id_ed25519.pub"
+
+    echo "Health check results:"
+    echo "---------------------"
+
+    if grep -q '^%sudo ALL=(ALL) NOPASSWD: ALL$' /etc/sudoers.d/99-sudo-nopasswd 2>/dev/null; then
+        echo "[OK]    sudoers configured for passwordless sudo"
+    else
+        echo "[ERROR] sudoers entry missing or incorrect"
+    fi
+
+    if grep -Eq '^[#[:space:]]*PermitRootLogin[[:space:]]+no$' /etc/ssh/sshd_config 2>/dev/null; then
+        echo "[OK]    SSH root login disabled"
+    else
+        echo "[ERROR] SSH root login not configured as expected"
+    fi
+
+    if grep -Eq '^[#[:space:]]*AllowUsers[[:space:]]+' /etc/ssh/sshd_config 2>/dev/null; then
+        echo "[OK]    AllowUsers configured"
+    else
+        echo "[WARN]  AllowUsers entry missing"
+    fi
+
+    local ssh_service
+    ssh_service="$(ssh_service_name)"
+    if sudo systemctl is-active --quiet "$ssh_service"; then
+        echo "[OK]    ${ssh_service} service is active"
+    else
+        echo "[WARN]  ${ssh_service} service is not active"
+    fi
+
+    if [ -f "$ssh_key" ] && [ -f "$ssh_pub" ]; then
+        echo "[OK]    SSH keypair exists"
+    else
+        echo "[WARN]  SSH keypair missing"
+    fi
+
+    if [ -f "$user_home/.bashrc" ]; then
+        echo "[OK]    .bashrc exists"
+    else
+        echo "[WARN]  .bashrc missing"
+    fi
+
+    if [ -f "$user_home/.bash_aliases" ]; then
+        echo "[OK]    .bash_aliases exists"
+    else
+        echo "[WARN]  .bash_aliases missing"
+    fi
+
+    if dpkg -l | grep -q "^ii.*snmpd"; then
+        echo "[OK]    snmpd package installed"
+    else
+        echo "[WARN]  snmpd package not installed"
+    fi
+
+    if sudo systemctl is-active --quiet snmpd; then
+        echo "[OK]    snmpd service is active"
+    else
+        echo "[WARN]  snmpd service is not active"
+    fi
+
+    if [ -f /etc/apt/sources.list.d/docker.list ]; then
+        echo "[OK]    Docker repository configured"
+    else
+        echo "[WARN]  Docker repository not configured"
+    fi
+
+    if command -v docker >/dev/null 2>&1; then
+        echo "[OK]    Docker command available"
+    else
+        echo "[WARN]  Docker not installed"
+    fi
+
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+        echo "[OK]    Docker Compose plugin available"
+    else
+        echo "[WARN]  Docker Compose plugin unavailable"
+    fi
+
+    if id -nG "$SUDO_USER" | grep -qw docker; then
+        echo "[OK]    User $SUDO_USER is in docker group"
+    else
+        echo "[WARN]  User $SUDO_USER is not in docker group"
+    fi
+
+    if command -v pivpn >/dev/null 2>&1; then
+        echo "[OK]    PiVPN installed"
+    else
+        echo "[WARN]  PiVPN not installed"
+    fi
+
+    if [ -d "$user_home/update-fastfetch" ]; then
+        echo "[OK]    update-fastfetch repository exists"
+    else
+        echo "[WARN]  update-fastfetch repository missing"
+    fi
+
+    if command -v wakeonlan >/dev/null 2>&1; then
+        echo "[OK]    wakeonlan command available"
+    else
+        echo "[WARN]  wakeonlan command not available"
+    fi
+
+    if [ -f "$user_home/nas-backup.sh" ]; then
+        echo "[OK]    NAS backup script exists"
+    else
+        echo "[WARN]  NAS backup script missing"
+    fi
+
+    if [ -f /root/.nas-credentials ]; then
+        echo "[OK]    NAS credentials file exists"
+    else
+        echo "[WARN]  NAS credentials file missing"
+    fi
+}
+
+###############################################################################
+# FUNCTION: show_important_paths
+# Description: Show important file paths, directories, and expected locations
+###############################################################################
+show_important_paths() {
+    log "Showing important paths."
+
+    local user_home="/home/$SUDO_USER"
+    local short_host
+    short_host="$(hostname -s 2>/dev/null || hostname | cut -d. -f1)"
+
+    echo "Important paths:"
+    echo "----------------"
+    echo
+    echo "User home:"
+    echo "  $user_home"
+    echo
+    echo "Log file:"
+    echo "  $LOG_FILE"
+    echo
+    echo "Shell:"
+    echo "  $user_home/.bashrc"
+    echo "  $user_home/.bash_aliases"
+    echo
+    echo "SSH:"
+    echo "  $user_home/.ssh/"
+    echo "  $user_home/.ssh/id_ed25519"
+    echo "  $user_home/.ssh/id_ed25519.pub"
+    echo
+    echo "SNMP:"
+    echo "  /etc/snmp/snmpd.conf"
+    echo
+    echo "Docker:"
+    echo "  /etc/apt/sources.list.d/docker.list"
+    echo "  /etc/apt/keyrings/docker.asc"
+    echo "  /var/lib/docker"
+    echo "  /var/lib/containerd"
+    echo
+    echo "PiVPN:"
+    echo "  pivpn command: $(command -v pivpn 2>/dev/null || echo 'not installed')"
+    echo "  Expected client names:"
+    echo "    ${short_host}-tb7"
+    echo "    ${short_host}-mbp"
+    echo "    ${short_host}-iph"
+    echo "    ${short_host}-len"
+    echo "  Common config location:"
+    echo "    $user_home/configs"
+    echo
+    echo "Fastfetch:"
+    echo "  $user_home/update-fastfetch"
+    echo
+    echo "Wake-on-LAN:"
+    echo "  $(command -v wakeonlan 2>/dev/null || echo 'not installed')"
+    echo
+    echo "NAS backup:"
+    echo "  Script: $user_home/nas-backup.sh"
+    echo "  Credentials: /root/.nas-credentials"
+    echo "  Mount point: /mnt/nas_backup"
+    echo "  NAS layout:"
+    echo "    //10.0.0.100/backup/dietpibackup/${short_host}/"
+    echo
+    echo "Latest backups:"
+    local files=(
+        "/etc/sudoers"
+        "/etc/ssh/sshd_config"
+        "/etc/snmp/snmpd.conf"
+        "$user_home/.bashrc"
+        "$user_home/.bash_aliases"
+    )
+    local file latest_backup
+    for file in "${files[@]}"; do
+        latest_backup="$(find_latest_backup "$file" || true)"
+        echo "  $file"
+        echo "    ${latest_backup:-No backup found}"
+    done
+}
+
+###############################################################################
+# FUNCTION: show_current_profile_config
+# Description: Show currently active profile-related configuration
+###############################################################################
+show_current_profile_config() {
+    log "Showing current profile configuration."
+
+    local short_host
+    short_host="$(hostname -s 2>/dev/null || hostname | cut -d. -f1)"
+
+    echo "Current profile configuration:"
+    echo "------------------------------"
+    echo "Version: $SCRIPT_VERSION"
+    echo "Profile: $PROFILE"
+    echo "Short hostname: $short_host"
+    echo "SNMP community: $SNMP_ROCOMMUNITY"
+    echo
+    echo "Expected PiVPN client names:"
+    echo "  ${short_host}-tb7"
+    echo "  ${short_host}-mbp"
+    echo "  ${short_host}-iph"
+    echo "  ${short_host}-len"
+    echo
+    echo "SNMP hardware mode:"
+    case "$PROFILE" in
+        x64|x64-brk)
+            echo "  x64 / DMI-based hardware info"
+            ;;
+        pi|pi-brk)
+            echo "  Raspberry Pi / device-tree-based hardware info"
+            ;;
+        *)
+            echo "  Unknown"
+            ;;
+    esac
+}
+
+###############################################################################
 # FUNCTION: run_all_tasks
 # Description: Run standard setup tasks only (excludes DietPi upgrades,
-#              Docker removal, PiVPN, Wake-on-LAN, and NAS backup generator)
+#              Docker removal, PiVPN, restore, and verification helpers)
 ###############################################################################
 run_all_tasks() {
     system_update_upgrade
@@ -2479,6 +3532,7 @@ menu() {
         echo "#####################################"
         echo "#   Automated System Configuration  #"
         echo "#####################################"
+        echo "Version: $SCRIPT_VERSION"
         echo "Profile: $PROFILE"
         echo "-------------------------------------"
         echo "Please select an option:"
@@ -2497,9 +3551,14 @@ menu() {
         echo "  13) Remove Docker and relevant tools"
         echo "  14) Clone the update-fastfetch repo"
         echo "  15) Run all tasks"
-        echo "  16) Install Wake-on-LAN tools"
-        echo "  17) Create NAS backup script (DietPi-style filters)"
-        echo "  18) Exit"
+        echo "  16) Show available backups"
+        echo "  17) Restore from backup"
+        echo "  18) Run health check"
+        echo "  19) Show important paths"
+        echo "  20) Show current profile config"
+        echo "  21) Install Wake-on-LAN tools"
+        echo "  22) Create NAS backup script"
+        echo "  23) Exit"
 
         read -rp "Enter your choice: " choice
 
@@ -2519,13 +3578,19 @@ menu() {
             13) remove_docker_and_tools ;;
             14) clone_fastfetch_repository ;;
             15) run_all_tasks ;;
-            16) install_wakeonlan ;;
-            17) create_nas_backup_script ;;
-            18)
+            16) show_available_backups ;;
+            17) restore_from_backup ;;
+            18) run_health_check ;;
+            19) show_important_paths ;;
+            20) show_current_profile_config ;;
+            21) install_wakeonlan ;;
+            22) create_nas_backup_script ;;
+            23)
                 log "Script execution completed."
                 log "Please apply the following command manually to source both .bashrc and .bash_aliases files:"
                 echo ". /home/$SUDO_USER/.bashrc && . /home/$SUDO_USER/.bash_aliases"
                 echo "Alternatively, log out and log back in to start a new shell session."
+                echo "Log file: $LOG_FILE"
                 exit 0
                 ;;
             *)
@@ -2540,6 +3605,7 @@ menu() {
 ###############################################################################
 # START
 ###############################################################################
+log "Script execution started. Version: $SCRIPT_VERSION"
 select_profile
 apply_profile_config
 install_missing_packages
