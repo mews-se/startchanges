@@ -79,6 +79,68 @@ docker-compose.override.yml
 *.sock
 
 # =========================
+# FASTFETCH TEMP FILES
+# =========================
+
+fastfetch_latest_*.deb
+
+# =========================
+# OPTIONAL SAFETY
+# =========================
+
+# Prevent accidental commits from local home testing
+home/
+
+# =========================
+# ALLOW SCRIPTS
+# =========================
+
+!*.sh
+# =========================
+# LOG FILES
+# =========================
+
+*.log
+startchanges.log
+
+# =========================
+# SYSTEM / TEMP FILES
+# =========================
+
+*.tmp
+*.swp
+*~
+.cache/
+.tmp/
+
+# =========================
+# EDITOR / OS FILES
+# =========================
+
+.vscode/
+.idea/
+*.code-workspace
+
+.DS_Store
+Thumbs.db
+
+# =========================
+# PACKAGE / BUILD ARTIFACTS
+# =========================
+
+node_modules/
+dist/
+build/
+
+# =========================
+# DOCKER / RUNTIME FILES
+# =========================
+
+docker-compose.override.yml
+*.pid
+*.sock
+
+# =========================
 # OPTIONAL: ALLOW SCRIPTS
 # =========================
 
