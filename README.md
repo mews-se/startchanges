@@ -81,14 +81,6 @@ The Unlicense
 
 ---
 
-## Notes
-
-- Restart shell after bash config changes
-- Re-login after Docker install
-- Review script before running
-
----
-
 ## License
 
 The Unlicense
