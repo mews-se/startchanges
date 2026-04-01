@@ -75,12 +75,3 @@ Select a profile and choose tasks from the menu.
 ## License
 
 The Unlicense
-- Credentials stored in: `/root/.nas-credentials`
-- Uses rsync mirror with excludes (DietPi-style)
-- Includes `/home` and `/mnt/dietpi_userdata`
-
----
-
-## License
-
-The Unlicense
