@@ -46,9 +46,9 @@ Profiles adjust SNMP, aliases, and system-specific behavior.
 ## Usage
 
 ```bash
-git clone https://github.com/mews-se/startchanges.git
-cd startchanges
-sudo ./startchanges.sh
+git clone https://github.com/mews-se/hostctl.git
+cd hostctl
+sudo ./hostctl.sh
 ```
 
 Select a profile and choose tasks from the menu.
@@ -58,6 +58,23 @@ Select a profile and choose tasks from the menu.
 ## NAS Backup (Summary)
 
 - Generates: `~/nas-backup.sh`
+- Credentials stored in: `/root/.nas-credentials`
+- Uses rsync mirror with excludes (DietPi-style)
+- Includes `/home` and `/mnt/dietpi_userdata`
+
+---
+
+## Notes
+
+- Restart shell after bash config changes
+- Re-login after Docker install
+- Review script before running
+
+---
+
+## License
+
+The Unlicense
 - Credentials stored in: `/root/.nas-credentials`
 - Uses rsync mirror with excludes (DietPi-style)
 - Includes `/home` and `/mnt/dietpi_userdata`
