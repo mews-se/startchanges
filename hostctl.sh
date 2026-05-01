@@ -653,6 +653,7 @@ create_bash_aliases() {
     local NEW_ALIASES
     NEW_ALIASES=$(cat <<'EOL'
 alias apta="sudo apt-get update && sudo apt-get dist-upgrade -y && sudo apt-get autoremove -y && sudo apt-get clean"
+alias bat="batcat"
 alias brkpi="ssh dietpi@10.0.1.8"
 alias dcdown="docker compose down"
 alias dclog="docker compose logs -f"
